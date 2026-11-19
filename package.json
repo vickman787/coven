@@ -1,0 +1,17 @@
+{
+  "description": "Coven \u2014 a Kiro Crew of AI agents that does a job together, each with a scoped budget, paying the next agent per task with x402, with an audit ledger. Kiroween 2026, Frankenstein category.",
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  },
+  "name": "coven",
+  "packageManager": "pnpm@10.15.0",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter @coven/web build",
+    "dev": "pnpm --filter @coven/web dev",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm build:packages && pnpm -r typecheck",
+    "build:packages": "pnpm --filter @coven/shared build && pnpm --filter @coven/ledger build && pnpm --filter @coven/payments build && pnpm --filter @coven/crew build"
+  },
+  "version": "0.1.0"
+}

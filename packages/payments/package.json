@@ -1,0 +1,30 @@
+{
+  "dependencies": {
+    "@coven/shared": "workspace:*",
+    "viem": "^2.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "name": "@coven/payments",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "generate-wallet": "node scripts/generate-wallet.mjs",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "types": "./dist/index.d.ts",
+  "version": "0.1.0",
+  "type": "module"
+}

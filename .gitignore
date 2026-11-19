@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+.next/
+out/
+build/
+
+# Env — never commit secrets. .env.example is committed, .env is not.
+.env
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+*.log
+
+# NOTE: .kiro is intentionally NOT ignored.
+# Kiroween 2026 requires /.kiro at the root of the public GitHub repo.
+
+# Demo run outputs (briefs from local/CLI runs)
+apps/crew/runs/

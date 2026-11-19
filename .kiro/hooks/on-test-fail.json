@@ -1,0 +1,1 @@
+{"description":"Block a commit that breaks the budget invariant","name":"on-test-fail","on":["packages/ledger/**"],"run":["pnpm --filter @coven/ledger test"],"stopOnFailure":true}

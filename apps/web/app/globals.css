@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --coven-bg: #0b0b14;
+  --coven-purple: #7c3aed;
+  --coven-gold: #f5c518;
+  --coven-ghost: #f8f7ff;
+  --coven-muted: #9a9ab0;
+  --coven-settled: #22c55e;
+  --coven-reserved: #f59e0b;
+  --coven-failed: #ef4444;
+}
+
+html,
+body {
+  background: var(--coven-bg);
+  color: var(--coven-ghost);
+}
