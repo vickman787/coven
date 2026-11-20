@@ -14,3 +14,4 @@
  * the facilitator pays the gas.
  */
 export * from "./x402.js";
+export * from "./user-wallet.js";

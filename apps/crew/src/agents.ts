@@ -1,4 +1,4 @@
-import { ledgerAddsUp } from "@coven/shared";
+import { allocateBudget, ledgerAddsUp } from "@coven/shared";
 import type { AgentRole } from "@coven/shared";
 import type { Brief, ResearchProvider, ResearchSource } from "./types.js";
 import { researchJob } from "./research.js";
@@ -20,23 +20,7 @@ import { researchJob } from "./research.js";
 export function summonerAllocate(
   budgetCents: number,
 ): { agent: AgentRole; amountCents: number }[] {
-  if (!Number.isInteger(budgetCents) || budgetCents <= 0) {
-    throw new Error("budgetCents must be a positive integer");
-  }
-  const shares: { agent: AgentRole; share: number }[] = [
-    { agent: "seeker", share: 0.4 },
-    { agent: "weaver", share: 0.4 },
-    { agent: "keeper", share: 0.1 },
-    { agent: "warden", share: 0.1 },
-  ];
-  const allocations = shares.map(({ agent, share }) => ({
-    agent,
-    amountCents: Math.floor(budgetCents * share),
-  }));
-  // Fix rounding on the last agent so the allocations sum exactly.
-  const sum = allocations.reduce((s, a) => s + a.amountCents, 0);
-  allocations[allocations.length - 1]!.amountCents += budgetCents - sum;
-  return allocations;
+  return allocateBudget(budgetCents);
 }
 
 /** Seeker: research the job. Returns the sources found, deduped. */

@@ -43,11 +43,27 @@ function schemaSql(): string {
   return readFileSync(join(dir, "schema.sql"), "utf-8");
 }
 
+function toIso(value: unknown): string | undefined {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return undefined;
+}
+
 function rowToJob(row: Record<string, unknown>): Job {
+  const createdAt = toIso(row.created_at);
+  const payerAddress =
+    typeof row.payer_address === "string" && row.payer_address.length > 0
+      ? row.payer_address
+      : undefined;
+  const paymentMode =
+    row.payment_mode === "user" ? ("user" as const) : ("demo" as const);
   return {
     approvedBudgetCents: row.approved_budget_cents as number,
+    ...(createdAt ? { createdAt } : {}),
     description: row.description as string,
     id: row.id as string,
+    ...(payerAddress ? { payerAddress } : {}),
+    paymentMode,
     status: row.status as Job["status"],
   };
 }
@@ -102,16 +118,27 @@ export class PostgresLedger {
     approvedBudgetCents: number;
     description: string;
     id: string;
+    payerAddress?: string;
+    paymentMode?: "demo" | "user";
   }): Promise<Job> {
     if (!Number.isInteger(input.approvedBudgetCents) || input.approvedBudgetCents < 0) {
       throw new Error("approvedBudgetCents must be a non-negative integer");
     }
+    if (input.payerAddress && !/^0x[0-9a-fA-F]{40}$/.test(input.payerAddress)) {
+      throw new Error("payerAddress must be a valid address");
+    }
     const { rows } = await this.pool.query(
-      `INSERT INTO jobs (id, description, approved_budget_cents)
-       VALUES ($1, $2, $3)
+      `INSERT INTO jobs (id, description, approved_budget_cents, payer_address, payment_mode)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (id) DO NOTHING
        RETURNING *`,
-      [input.id, input.description, input.approvedBudgetCents],
+      [
+        input.id,
+        input.description,
+        input.approvedBudgetCents,
+        input.payerAddress ?? null,
+        input.paymentMode ?? "demo",
+      ],
     );
     if (rows.length > 0) return rowToJob(rows[0]!);
     const existing = await this.pool.query(`SELECT * FROM jobs WHERE id = $1`, [input.id]);
@@ -482,6 +509,20 @@ export class PostgresLedger {
       [jobId],
     );
     return rows.length > 0 ? rowToJob(rows[0]!) : null;
+  }
+
+  /**
+   * List recent jobs, newest first. Public history for the v1 jobs page:
+   * no accounts yet, so this is every job in the ledger, capped at
+   * `limit` (1–100, default 50). The caller adds per-job totals.
+   */
+  async listJobs(limit = 50): Promise<Job[]> {
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit) || 50));
+    const { rows } = await this.pool.query(
+      `SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT $1`,
+      [safeLimit],
+    );
+    return rows.map(rowToJob);
   }
 
   /** Move a job through created -> running -> done/failed. */

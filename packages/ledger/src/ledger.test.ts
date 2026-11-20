@@ -397,3 +397,96 @@ describe("job status and briefs", () => {
     ]);
   });
 });
+
+describe("listJobs", () => {
+  it("lists recent jobs newest first, with a createdAt timestamp", async () => {
+    const ledger = await createTestLedger();
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "first job",
+      id: "job-list-a",
+    });
+    await ledger.createJob({
+      approvedBudgetCents: 300,
+      description: "second job",
+      id: "job-list-b",
+    });
+    const jobs = await ledger.listJobs(10);
+    expect(jobs.map((j) => j.id)).toEqual(["job-list-b", "job-list-a"]);
+    expect(jobs[0]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(jobs[0]?.approvedBudgetCents).toBe(300);
+  });
+
+  it("respects the limit", async () => {
+    const ledger = await createTestLedger();
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "first job",
+      id: "job-list-a",
+    });
+    await ledger.createJob({
+      approvedBudgetCents: 300,
+      description: "second job",
+      id: "job-list-b",
+    });
+    const jobs = await ledger.listJobs(1);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.id).toBe("job-list-b");
+  });
+});
+
+describe("per-user wallet attribution", () => {
+  it("stores payerAddress and paymentMode on a user-funded job", async () => {
+    const ledger = await createTestLedger();
+    const job = await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "user job",
+      id: "job-user-1",
+      payerAddress: "0x38c80359CD99245f2Fae9C284579A10Af7a41932",
+      paymentMode: "user",
+    });
+    expect(job.paymentMode).toBe("user");
+    expect(job.payerAddress).toBe("0x38c80359CD99245f2Fae9C284579A10Af7a41932");
+    const read = await ledger.getJob("job-user-1");
+    expect(read?.paymentMode).toBe("user");
+    expect(read?.payerAddress).toBe("0x38c80359CD99245f2Fae9C284579A10Af7a41932");
+  });
+
+  it("defaults to demo mode with no payer for a judge-path job", async () => {
+    const ledger = await createTestLedger();
+    const job = await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "demo job",
+      id: "job-demo-1",
+    });
+    expect(job.paymentMode).toBe("demo");
+    expect(job.payerAddress).toBeUndefined();
+  });
+
+  it("rejects an invalid payer address", async () => {
+    const ledger = await createTestLedger();
+    await expect(
+      ledger.createJob({
+        approvedBudgetCents: 500,
+        description: "bad job",
+        id: "job-bad-1",
+        payerAddress: "not-an-address",
+        paymentMode: "user",
+      }),
+    ).rejects.toThrow(/payerAddress/);
+  });
+
+  it("lists user jobs with their payer attribution", async () => {
+    const ledger = await createTestLedger();
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "user job",
+      id: "job-user-list",
+      payerAddress: "0x38c80359CD99245f2Fae9C284579A10Af7a41932",
+      paymentMode: "user",
+    });
+    const jobs = await ledger.listJobs(10);
+    expect(jobs[0]?.paymentMode).toBe("user");
+    expect(jobs[0]?.payerAddress).toBe("0x38c80359CD99245f2Fae9C284579A10Af7a41932");
+  });
+});

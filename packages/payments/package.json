@@ -13,6 +13,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./user-wallet": {
+      "types": "./dist/user-wallet.d.ts",
+      "import": "./dist/user-wallet.js",
+      "default": "./dist/user-wallet.js"
     }
   },
   "main": "./dist/index.js",

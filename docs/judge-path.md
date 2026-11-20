@@ -43,3 +43,42 @@ No login, no signup, no help from the builder.
 - The demo job "research 10 competitors" names no product, so the
   Seeker's Wikipedia sources are generic. Give the job a topic
   ("research 10 AI note-taking apps") for a sharp brief.
+
+## Public v1 (added 2026-11-20)
+
+The judge path above is unchanged. Around it, the app is now a small
+public product: the home page explains Coven below the Summon form,
+`/jobs` lists recent jobs from the ledger, and every job also lives at
+`/jobs/<id>` (the Share button copies that link; `?job=<id>` still
+works). History is public by link in v1 — no accounts yet, so jobs you
+summon are marked "yours on this device" from localStorage only.
+Agent cards now say "complete" (not "paid") when a payment is
+unresolved; "paid" is reserved for settled payments with a hash.
+
+## Per-user wallets (added 2026-11-20)
+
+A public user can fund jobs from their OWN Base Sepolia testnet wallet
+instead of the shared demo wallet:
+
+1. On the home page, **Create my testnet wallet** (or import one). The
+   key is generated in the browser and stored only in that browser's
+   localStorage. The server never sees it.
+2. Fund the address with free test USDC at https://faucet.circle.com
+   (USDC, Base Sepolia). The card shows the onchain balance.
+3. Summon as usual. The browser checks the balance first, then signs
+   one EIP-3009 authorization per handoff (4, amounts = the budget
+   split) and sends only those signed payloads. The server validates
+   them (signer, amounts, payee, nonce, validity window) and settles
+   them with the facilitator.
+4. The Ledger shows whose wallet paid: the user's address, or "the
+   demo wallet" for judge-path jobs. The two modes are never mixed.
+
+Honest caveats: each payment is a self-transfer (the user's wallet
+pays itself), the same model as the demo — so the test USDC is not
+spent, but the onchain settlement from the user's wallet is real. An
+unfunded wallet is rejected before any job is created (400,
+insufficient test USDC); if the balance check cannot reach the
+network, the job may still be created and the facilitator will reject
+the payments, which then stay unresolved in the ledger. Signed
+authorizations live in server memory only, never in Postgres, and are
+deleted after the job runs. No accounts, no mainnet, one job type.

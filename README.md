@@ -7,8 +7,55 @@ Kiroween 2026, Frankenstein category. Deadline: Friday, December 4, 2026 at 2:00
 ## Status — Step 4 done, except deploy
 
 Step 4 is done: the judge path works end to end in the web app, with no
-login. **42 tests pass, 3 skipped** (ledger 19+1, payments 10+2 live,
-crew 7, web API 6).
+login. **81 tests pass, 3 skipped** (ledger 25+1, payments 31+2 live,
+crew 7, web 18).
+
+## Public v1 — added 2026-11-20, judge path kept intact
+
+The home Summon flow, the $5.00 example job, no-login summon, and the
+`?job=<id>` link all work exactly as before. Added around them:
+
+- **Home as a landing page:** Summon stays the hero; below it, How it
+  works, Meet the Coven (the 5 agents), How the ledger works, and an
+  honest-limits section.
+- **Jobs history:** `/jobs` lists recent jobs from the ledger (newest
+  first, status, budget, spent, date) via new `GET /api/jobs`
+  (`PostgresLedger.listJobs`, limit 1–100). Jobs summoned in this
+  browser are marked "yours on this device" from localStorage.
+- **Clean job URLs:** `/jobs/<id>` shows the same Work / Ledger /
+  Result tabs as `?job=<id>`; the Share button now copies the
+  `/jobs/<id>` link.
+- **Paid-label fix:** an agent is labelled "paid" only when its payment
+  is settled with an x402 hash. A finished agent with an unresolved
+  payment is labelled "complete" — work done, money not moved yet
+  (`apps/web/lib/agent-status.ts`, tested).
+
+Still NOT in public v1: accounts (no auth yet — history is public by
+job link), and more job types than the research brief. Those are the
+follow-up decisions after the Kiroween submission.
+
+## Per-user wallets — added 2026-11-20
+
+A public user can fund jobs from their OWN Base Sepolia testnet wallet
+instead of the shared demo wallet. **Design: the private key never
+leaves the user's browser.** "Create my testnet wallet" on the home
+page generates a wallet in the browser (key in localStorage only);
+fund it with free test USDC at https://faucet.circle.com (USDC, Base
+Sepolia). When summoning, the browser checks the balance, then signs
+one EIP-3009 authorization per handoff (4, amounts 40/40/10/10 of the
+budget) and sends only those signed payloads. The server validates
+them (signer, amounts, payee, nonce, 10-minute window) and settles
+them via the facilitator; payloads live in server memory only and are
+deleted after the job runs. The Ledger shows the payer address, or
+"the demo wallet" for judge-path jobs. An unfunded wallet is rejected
+before a job is created (400); a tampered authorization is rejected;
+a user job never falls back to the shared wallet.
+
+Honest caveat: each payment is a self-transfer — the user's wallet
+pays itself, the same model as the demo — so test USDC is not spent,
+but the onchain settlement from the user's wallet is real. Paying a
+Coven payee or per-agent wallets would be a real charge and is not
+what this version does. See `docs/judge-path.md` for the full flow.
 
 - Live: `apps/web` — Screen 1 Summon, Screen 2 Coven at Work (5 agent
   cards, live polling, Revoke button), Screen 3 Ledger (totals, rule in

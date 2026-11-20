@@ -6,6 +6,13 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Per-user wallets (2026-11-20): which wallet signs a job's payments,
+-- and which mode it runs in. "demo" = the shared test wallet (or none);
+-- "user" = the user's own browser wallet. Added with ALTER so existing
+-- databases (including the live Supabase one) migrate on init().
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payer_address TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payment_mode TEXT NOT NULL DEFAULT 'demo';
+
 CREATE TABLE IF NOT EXISTS reservations (
   id TEXT PRIMARY KEY,
   job_id TEXT NOT NULL REFERENCES jobs(id),
