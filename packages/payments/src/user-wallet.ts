@@ -1,4 +1,3 @@
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import { allocateBudget } from "@coven/shared";
 import {
@@ -13,30 +12,31 @@ import {
 import type { PaymentPayload } from "./eip3009.js";
 
 /**
- * Per-user testnet wallets — BROWSER-SAFE.
+ * Per-user testnet wallets — BROWSER-SAFE, no private keys anywhere.
  *
- * This module must never import node APIs (no node:crypto, no
- * "x402.ts" server code): it runs in the user's browser, where the
- * private key lives. It imports only viem/accounts, @coven/shared,
- * and the shared EIP-3009 constants. The web app imports it via the
- * "@coven/payments/user-wallet" subpath so the server-only x402
- * module (and its node:crypto import) is never bundled into the page.
+ * Since 2026-11-20 the user connects their OWN wallet with Reown
+ * AppKit (WalletConnect) and signs with it. This module holds NO
+ * private key: there is no wallet generation, no key import, no
+ * key storage, and no signing with a key held in code. The only
+ * signing happens in the user's wallet app, via wagmi's
+ * `signTypedData` (see apps/web/lib/walletconnect.ts), which asks
+ * the connected wallet to sign each EIP-3009 authorization.
  *
- * Security model, in plain terms:
- * - The key is generated in the browser and stored ONLY in this
- *   browser's localStorage (see apps/web/lib/user-wallet.ts). It is
- *   never sent to the server, never stored in Postgres, never logged.
- * - The browser signs one EIP-3009 authorization per handoff and
- *   sends only those signed payloads. Each is bound to one amount,
- *   one payer, one payee, one nonce, and a 10-minute window.
- * - Testnet Base Sepolia USDC only. The money has no real value.
- *   Anyone with the key controls the wallet, so the UI must say so
- *   and offer export/backup and removal.
- * - Destination is the user's OWN address (self-transfer), the same
- *   model as the shared demo wallet: the facilitator verifies the
- *   signature and balance and settles a real onchain transaction,
- *   but the test USDC is not spent. Paying a Coven payee would be a
- *   real charge and is NOT what this version does.
+ * What lives here instead:
+ * - the pure typed-data requests for the 4 handoffs, so the browser
+ *   and the tests build exactly the same message the server
+ *   validates (same domain, types, amounts, self-payee, 10-minute
+ *   window, distinct random nonces);
+ * - assembling a signed payload from a signature the wallet
+ *   returned;
+ * - reading a wallet's onchain test USDC balance, and address
+ *   helpers for display.
+ *
+ * Testnet Base Sepolia USDC only. The money has no real value.
+ * Destination is the user's OWN address (self-transfer), the same
+ * model as the shared demo wallet: the facilitator verifies the
+ * signature and balance and settles a real onchain transaction,
+ * but the test USDC is not spent.
  */
 
 export const USDC_FAUCET_URL = "https://faucet.circle.com";
@@ -45,18 +45,6 @@ export const BASE_SEPOLIA_BLOCKSCOUT_ADDRESS = (address: string) =>
   `https://base-sepolia.blockscout.com/address/${address}`;
 
 /** 1 cent = 10,000 USDC atomic units (6 decimals). */
-export function generateUserWallet(): { address: string; privateKey: Hex } {
-  const privateKey = generatePrivateKey();
-  return { address: privateKeyToAccount(privateKey).address, privateKey };
-}
-
-export function addressFromPrivateKey(privateKey: string): string {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
-    throw new Error("private key must be 0x followed by 64 hex characters");
-  }
-  return privateKeyToAccount(privateKey as Hex).address;
-}
-
 export function isValidAddress(address: string): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test(address);
 }
@@ -126,54 +114,80 @@ function randomNonceHex(): Hex {
   return `0x${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
 }
 
+export interface HandoffSigningRequest {
+  /** Amount for this handoff, in integer cents. */
+  amountCents: number;
+  domain: typeof EIP3009_DOMAIN;
+  message: {
+    from: Hex;
+    nonce: Hex;
+    to: Hex;
+    validAfter: bigint;
+    validBefore: bigint;
+    value: bigint;
+  };
+  primaryType: "TransferWithAuthorization";
+  types: typeof TRANSFER_WITH_AUTHORIZATION_TYPES;
+}
+
 /**
- * Sign one EIP-3009 authorization per handoff, in allocation order
- * (seeker, weaver, keeper, warden), paying the user's own address.
- * The private key is used only here, in the browser, and is never
- * returned in the result — only the signed payloads leave the page.
+ * Build the 4 typed-data signing requests for a user-funded job —
+ * one per handoff, in allocation order (seeker, weaver, keeper,
+ * warden), paying the user's own address. Pure: no key, no signing.
+ * The connected wallet signs each request (wagmi `signTypedData`);
+ * the signatures go to {@link handoffPayloadFromSignature}.
  */
-export async function signUserHandoffAuthorizations(input: {
+export function buildHandoffSigningRequests(input: {
   budgetCents: number;
-  privateKey: Hex;
+  payerAddress: string;
   validForSeconds?: number;
-}): Promise<{ authorizations: PaymentPayload[]; payerAddress: string }> {
-  const account = privateKeyToAccount(input.privateKey);
-  const payerAddress = account.address;
+}): HandoffSigningRequest[] {
+  if (!isValidAddress(input.payerAddress)) {
+    throw new Error("payerAddress must be a valid wallet address");
+  }
+  const payer = input.payerAddress as Hex;
   const now = Math.floor(Date.now() / 1000);
   const validAfter = now;
   const validBefore = now + (input.validForSeconds ?? 600);
-  const authorizations: PaymentPayload[] = [];
-  for (const { amountCents } of allocateBudget(input.budgetCents)) {
-    const value = centsToAtomicUnits(amountCents);
-    const nonce = randomNonceHex();
-    const signature = await account.signTypedData({
-      domain: EIP3009_DOMAIN,
-      message: {
-        from: payerAddress,
-        nonce,
-        to: payerAddress,
-        validAfter: BigInt(validAfter),
-        validBefore: BigInt(validBefore),
-        value,
+  return allocateBudget(input.budgetCents).map(({ amountCents }) => ({
+    amountCents,
+    domain: EIP3009_DOMAIN,
+    message: {
+      from: payer,
+      nonce: randomNonceHex(),
+      to: payer,
+      validAfter: BigInt(validAfter),
+      validBefore: BigInt(validBefore),
+      value: centsToAtomicUnits(amountCents),
+    },
+    primaryType: "TransferWithAuthorization" as const,
+    types: TRANSFER_WITH_AUTHORIZATION_TYPES,
+  }));
+}
+
+/**
+ * Assemble one x402 payment payload from a signing request and the
+ * signature the connected wallet returned for it. The signature is
+ * the only wallet output; the key never leaves the wallet app.
+ */
+export function handoffPayloadFromSignature(
+  request: HandoffSigningRequest,
+  signature: Hex,
+): PaymentPayload {
+  const { amountCents, message } = request;
+  return {
+    accepted: buildRequirements({ amountCents, payTo: message.to }),
+    payload: {
+      authorization: {
+        from: message.from,
+        nonce: message.nonce,
+        to: message.to,
+        validAfter: message.validAfter.toString(),
+        validBefore: message.validBefore.toString(),
+        value: message.value.toString(),
       },
-      primaryType: "TransferWithAuthorization",
-      types: TRANSFER_WITH_AUTHORIZATION_TYPES,
-    });
-    authorizations.push({
-      accepted: buildRequirements({ amountCents, payTo: payerAddress }),
-      payload: {
-        authorization: {
-          from: payerAddress,
-          nonce,
-          to: payerAddress,
-          validAfter: validAfter.toString(),
-          validBefore: validBefore.toString(),
-          value: value.toString(),
-        },
-        signature,
-      },
-      x402Version: 2,
-    });
-  }
-  return { authorizations, payerAddress };
+      signature,
+    },
+    x402Version: 2,
+  };
 }

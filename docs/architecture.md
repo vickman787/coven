@@ -4,10 +4,21 @@ See `.kiro/specs/coven/design.md` for the full design.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ apps/web (Next.js 16, React 19) — the judge path           │
+│ apps/web (Next.js 16, React 19) — multi-space app          │
+│  /                  landing only                            │
+│  /workspace         summon + wallet + your jobs            │
+│  /workspace/agents  Agents at Work space                    │
+│  /workspace/history Work History (All / Mine / Demo)        │
+│  /workspace/jobs/<id>/agents|ledger|result — one job's     │
+│    spaces (separate routes, not tabs)                       │
 │  POST /api/jobs → create job, run in background (after())  │
+│  GET  /api/jobs → list jobs, optional ?payer=0x… filter    │
 │  GET  /api/jobs/[id] → status, totals, payments, brief     │
 │  POST /api/jobs/[id]/revoke → Warden revokes an agent      │
+│  Wallet: injected browser extension (wagmi) — MetaMask,     │
+│    Rainbow, Coinbase Wallet. No WalletConnect, no QR code,  │
+│    no project ID. The extension signs EIP-3009 auths. No    │
+│    private key anywhere in the app.                         │
 └──────────────┬───────────────────────────────┬─────────────┘
                │                               │
      ┌─────────▼────────┐             ┌────────▼─────────┐
@@ -52,13 +63,15 @@ See `.kiro/specs/coven/design.md` for the full design.
   `GET /api/jobs/[id]`, which reads the ledger — never browser state.
 - **In-memory** only for the running job's executor and the pg-mem
   fallback used locally. On the deployed app `DATABASE_URL` points at
-  Railway Postgres, so jobs survive across serverless instances.
+  Supabase Postgres, so jobs survive across serverless instances.
+  Signed user authorizations also live in server memory only, and
+  are deleted after the job runs.
 - **No login anywhere** on the judge path. Jobs are addressed by an
-  unguessable id in the URL (`?job=...`).
+  unguessable id in the URL (`/workspace/jobs/<id>/agents`; old
+  `/jobs/<id>` and `?job=<id>` links redirect there).
 
 ## Tests
 
-34 pass, 3 skipped at the end of Step 3; Step 4 added 6 web API tests
-and 2 ledger tests (job status + briefs). Run everything with
-`pnpm test` from the repo root. Live facilitator tests are gated on
+88 pass, 3 skipped (ledger 25+1, payments 31+2, crew 7, web 25).
+Run everything with `pnpm test` from the repo root. Live facilitator tests are gated on
 `COVEN_LIVE_X402=1` and never move money (fresh unfunded wallet).

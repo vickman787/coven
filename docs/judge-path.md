@@ -2,20 +2,23 @@
 
 No login, no signup, no help from the builder.
 
-1. Open the live app.
-2. Click **Summon a Coven**.
-3. Enter a job, for example: `research 10 competitors and write a one-page brief`
+1. Open the live app — the landing page.
+2. Click **Open the workspace**.
+3. Enter a job (the input starts empty; the example text is only a
+   placeholder), for example: `research 10 competitors and write a one-page brief`
 4. Set a budget: **$5.00** (allowed $1.00–$10.00, test USDC on Base Sepolia).
-5. Watch the agents work on **The Coven at Work**: each agent card shows its
-   role, its scoped budget, and how much it has spent. The page updates
-   live while the job runs.
-6. Open **The Ledger**: settled, reserved, unresolved, and approved totals,
-   with the rule in plain text — settled + reserved + unresolved =
-   approved budget. Click any payment to see its x402 hash and a link to
-   the transaction on Blockscout.
-7. Open **The Result**: the finished one-page brief, its sources, and the
-   final ledger balanced. Share the job link — anyone who opens it can
-   audit the same job.
+5. Click **Summon a Coven** — no wallet needed, the job runs on the
+   demo wallet, labelled as such. You land on **Agents at Work**:
+   each agent card shows its role, its scoped budget, and how much it
+   has spent. The page updates live while the job runs.
+6. Open **The Ledger** (its own space, linked from the job): settled,
+   reserved, unresolved, and approved totals, with the rule in plain
+   text — settled + reserved + unresolved = approved budget. Click any
+   payment to see its x402 hash and a link to the transaction on
+   Blockscout.
+7. Open **The Result**: the finished one-page brief, its sources, and
+   the final ledger balanced. Share the job link — anyone who opens it
+   can audit the same job.
 
 ## What a judge can check
 
@@ -44,34 +47,44 @@ No login, no signup, no help from the builder.
   Seeker's Wikipedia sources are generic. Give the job a topic
   ("research 10 AI note-taking apps") for a sharp brief.
 
-## Public v1 (added 2026-11-20)
+## Public v1 + redesign (added 2026-11-20)
 
-The judge path above is unchanged. Around it, the app is now a small
-public product: the home page explains Coven below the Summon form,
-`/jobs` lists recent jobs from the ledger, and every job also lives at
-`/jobs/<id>` (the Share button copies that link; `?job=<id>` still
-works). History is public by link in v1 — no accounts yet, so jobs you
-summon are marked "yours on this device" from localStorage only.
-Agent cards now say "complete" (not "paid") when a payment is
-unresolved; "paid" is reserved for settled payments with a hash.
+The judge path above is unchanged in speed — landing → workspace →
+summon, no login — but the app is now a multi-space product, not one
+page: `/` is a landing page only; `/workspace` is where you summon
+and see your jobs; `/workspace/agents` is the Agents at Work space;
+`/workspace/history` is Work History; each job has its own spaces at
+`/workspace/jobs/<id>/agents`, `/ledger`, and `/result`. Old links
+still work: `/jobs` redirects to history, `/jobs/<id>` redirects to
+the job's Agents space, and `?job=<id>` forwards there too. Agent
+cards say "complete" (not "paid") when a payment is unresolved;
+"paid" is reserved for settled payments with a hash.
 
-## Per-user wallets (added 2026-11-20)
+## Per-user wallets — browser wallet extension (added 2026-11-20)
 
-A public user can fund jobs from their OWN Base Sepolia testnet wallet
-instead of the shared demo wallet:
+A public user funds jobs from their OWN wallet, connected with the
+injected browser extension (MetaMask, Rainbow, Coinbase Wallet) —
+no WalletConnect, no QR code, no project ID. There is no
+browser-generated wallet and no private key anywhere in the app:
 
-1. On the home page, **Create my testnet wallet** (or import one). The
-   key is generated in the browser and stored only in that browser's
-   localStorage. The server never sees it.
+1. In the workspace, click **Connect browser wallet** and approve in
+   your extension. Your key never leaves the extension. If no
+   extension is installed, the card says so and links to the install
+   pages instead of faking a connection.
 2. Fund the address with free test USDC at https://faucet.circle.com
    (USDC, Base Sepolia). The card shows the onchain balance.
-3. Summon as usual. The browser checks the balance first, then signs
-   one EIP-3009 authorization per handoff (4, amounts = the budget
-   split) and sends only those signed payloads. The server validates
-   them (signer, amounts, payee, nonce, validity window) and settles
-   them with the facilitator.
+3. Summon as usual. The browser checks the balance first, then your
+   extension signs one EIP-3009 authorization per handoff (4, amounts =
+   the budget split) and sends only those signed payloads. The server
+   validates them (signer, amounts, payee, nonce, validity window)
+   and settles them with the facilitator. If the extension is on the
+   wrong network, the card offers to switch it to Base Sepolia.
 4. The Ledger shows whose wallet paid: the user's address, or "the
    demo wallet" for judge-path jobs. The two modes are never mixed.
+
+No wallet setup is needed — there is no project ID to create and
+nothing to configure. Mobile wallets without a browser extension
+cannot connect this way.
 
 Honest caveats: each payment is a self-transfer (the user's wallet
 pays itself), the same model as the demo — so the test USDC is not
@@ -82,3 +95,13 @@ network, the job may still be created and the facilitator will reject
 the payments, which then stay unresolved in the ledger. Signed
 authorizations live in server memory only, never in Postgres, and are
 deleted after the job runs. No accounts, no mainnet, one job type.
+
+## Mock data — cleared 2026-11-20
+
+The app shows only real data: jobs from the ledger, balances from
+the chain, payments with real hashes or none at all. The job input
+starts empty (the example is placeholder text only); history and
+agents show real empty states ("No jobs yet", "No job running")
+when there is nothing to show. Test fixtures in `*.test.ts` files
+and the real historical payment hashes in the README are not app
+data and were left alone.

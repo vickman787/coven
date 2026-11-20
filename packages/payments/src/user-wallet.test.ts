@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "viem";
 import { allocateBudget } from "@coven/shared";
 import {
   balanceCoversBudget,
-  generateUserWallet,
+  buildHandoffSigningRequests,
   getUsdcBalanceCents,
+  handoffPayloadFromSignature,
   isValidAddress,
   shortAddress,
-  signUserHandoffAuthorizations,
-  addressFromPrivateKey,
 } from "./user-wallet.js";
+import type { PaymentPayload } from "./eip3009.js";
 import {
   FacilitatorClient,
   PreSignedPaymentExecutor,
@@ -18,6 +17,34 @@ import {
   signPaymentAuthorization,
   validateUserAuthorizations,
 } from "./x402.js";
+
+/**
+ * Signing in these tests stands in for the connected wallet: a
+ * throwaway key is generated inside the test, used to sign the
+ * exact typed-data requests the browser builds, and discarded.
+ * No app code holds a user's private key — see user-wallet.ts.
+ */
+async function signHandoffsAsWallet(input: {
+  budgetCents: number;
+}): Promise<{ authorizations: PaymentPayload[]; payerAddress: string }> {
+  const privateKey = generatePrivateKey();
+  const account = privateKeyToAccount(privateKey);
+  const requests = buildHandoffSigningRequests({
+    budgetCents: input.budgetCents,
+    payerAddress: account.address,
+  });
+  const authorizations: PaymentPayload[] = [];
+  for (const request of requests) {
+    const signature = await account.signTypedData({
+      domain: request.domain,
+      message: request.message,
+      primaryType: request.primaryType,
+      types: request.types,
+    });
+    authorizations.push(handoffPayloadFromSignature(request, signature));
+  }
+  return { authorizations, payerAddress: account.address };
+}
 
 describe("allocateBudget (shared, single source of truth)", () => {
   it("splits $5.00 as 200/200/50/50 and sums exactly", () => {
@@ -41,50 +68,60 @@ describe("allocateBudget (shared, single source of truth)", () => {
   });
 });
 
-describe("user wallet generation", () => {
-  it("generates a wallet whose address derives from its key", () => {
-    const wallet = generateUserWallet();
-    expect(isValidAddress(wallet.address)).toBe(true);
-    expect(addressFromPrivateKey(wallet.privateKey)).toBe(wallet.address);
-    expect(privateKeyToAccount(wallet.privateKey).address).toBe(wallet.address);
-  });
-
-  it("rejects a malformed private key on import", () => {
-    expect(() => addressFromPrivateKey("not-a-key")).toThrow();
-    expect(() => addressFromPrivateKey("0x1234")).toThrow();
-  });
-
+describe("address helpers", () => {
   it("shortens an address for display", () => {
     expect(shortAddress("0x38c80359CD99245f2Fae9C284579A10Af7a41932")).toBe(
       "0x38c8…1932",
     );
   });
+
+  it("validates addresses and rejects a bad payer address when building requests", () => {
+    expect(isValidAddress("0x38c80359CD99245f2Fae9C284579A10Af7a41932")).toBe(true);
+    expect(isValidAddress("not-an-address")).toBe(false);
+    expect(() =>
+      buildHandoffSigningRequests({
+        budgetCents: 500,
+        payerAddress: "not-an-address",
+      }),
+    ).toThrow();
+  });
 });
 
-describe("user handoff authorizations (browser signing)", () => {
-  it("signs 4 authorizations, self-pay, that recover to the user's address", async () => {
-    const wallet = generateUserWallet();
-    const { authorizations, payerAddress } = await signUserHandoffAuthorizations({
+describe("user handoff signing requests (WalletConnect flow)", () => {
+  it("builds 4 requests, self-pay, distinct nonces, 10-minute window", () => {
+    const payer = "0x38c80359CD99245f2Fae9C284579A10Af7a41932";
+    const before = Math.floor(Date.now() / 1000);
+    const requests = buildHandoffSigningRequests({ budgetCents: 500, payerAddress: payer });
+    expect(requests).toHaveLength(4);
+    expect(requests.map((r) => r.amountCents)).toEqual([200, 200, 50, 50]);
+    const nonces = new Set(requests.map((r) => r.message.nonce));
+    expect(nonces.size).toBe(4);
+    for (const request of requests) {
+      expect(request.message.from).toBe(payer);
+      // Self-transfer: the user pays themselves, as in the demo model.
+      expect(request.message.to).toBe(payer);
+      expect(Number(request.message.validBefore - request.message.validAfter)).toBe(600);
+      expect(Number(request.message.validAfter)).toBeGreaterThanOrEqual(before);
+    }
+  });
+
+  it("signatures on the built requests recover to the user's address", async () => {
+    const { authorizations, payerAddress } = await signHandoffsAsWallet({
       budgetCents: 500,
-      privateKey: wallet.privateKey,
     });
-    expect(payerAddress).toBe(wallet.address);
     expect(authorizations).toHaveLength(4);
     const amounts = authorizations.map((p) =>
       Number(BigInt(p.payload.authorization.value) / 10_000n),
     );
     expect(amounts).toEqual([200, 200, 50, 50]);
-    const nonces = new Set(authorizations.map((p) => p.payload.authorization.nonce));
-    expect(nonces.size).toBe(4);
     for (const payload of authorizations) {
-      expect(payload.payload.authorization.from).toBe(wallet.address);
-      // Self-transfer: the user pays themselves, as in the demo model.
-      expect(payload.payload.authorization.to).toBe(wallet.address);
-      expect(await recoverAuthorizationSigner(payload)).toBe(wallet.address);
+      expect(payload.payload.authorization.from).toBe(payerAddress);
+      expect(payload.payload.authorization.to).toBe(payerAddress);
+      expect(await recoverAuthorizationSigner(payload)).toBe(payerAddress);
     }
   });
 
-  it("server signing and browser signing agree on the same domain", async () => {
+  it("server signing and wallet signing agree on the same domain", async () => {
     const privateKey = generatePrivateKey();
     const account = privateKeyToAccount(privateKey);
     const serverPayload = await signPaymentAuthorization({
@@ -92,30 +129,36 @@ describe("user handoff authorizations (browser signing)", () => {
       payTo: account.address,
       privateKey,
     });
-    const browser = await signUserHandoffAuthorizations({
+    const { authorizations } = await signHandoffsAsWallet({ budgetCents: 500 });
+    // Note: signHandoffsAsWallet uses its own throwaway wallet, so
+    // compare domains via the server payload against a set signed
+    // by the same account instead.
+    const requests = buildHandoffSigningRequests({
       budgetCents: 500,
-      privateKey,
+      payerAddress: account.address,
     });
+    const signature = await account.signTypedData({
+      domain: requests[0]!.domain,
+      message: requests[0]!.message,
+      primaryType: requests[0]!.primaryType,
+      types: requests[0]!.types,
+    });
+    const walletPayload = handoffPayloadFromSignature(requests[0]!, signature);
     expect(await recoverAuthorizationSigner(serverPayload)).toBe(account.address);
-    expect(await recoverAuthorizationSigner(browser.authorizations[0]!)).toBe(
-      account.address,
-    );
+    expect(await recoverAuthorizationSigner(walletPayload)).toBe(account.address);
     // Same domain/types: the accepted requirements match except amount.
-    expect(browser.authorizations[0]!.accepted.asset).toBe(serverPayload.accepted.asset);
-    expect(browser.authorizations[0]!.accepted.network).toBe(
-      serverPayload.accepted.network,
-    );
+    expect(walletPayload.accepted.asset).toBe(serverPayload.accepted.asset);
+    expect(walletPayload.accepted.network).toBe(serverPayload.accepted.network);
+    expect(authorizations).toHaveLength(4);
   });
 });
 
 describe("validateUserAuthorizations (server)", () => {
   async function validSet(budgetCents = 500) {
-    const wallet = generateUserWallet();
-    const { authorizations, payerAddress } = await signUserHandoffAuthorizations({
+    const { authorizations, payerAddress } = await signHandoffsAsWallet({
       budgetCents,
-      privateKey: wallet.privateKey,
     });
-    return { authorizations, payerAddress, wallet };
+    return { authorizations, payerAddress };
   }
 
   it("accepts a correct set", async () => {
@@ -142,12 +185,12 @@ describe("validateUserAuthorizations (server)", () => {
 
   it("rejects a set claimed for a different wallet", async () => {
     const { authorizations, payerAddress } = await validSet();
-    const other = generateUserWallet();
+    const other = privateKeyToAccount(generatePrivateKey()).address;
     const result = await validateUserAuthorizations({
       authorizations,
       budgetCents: 500,
       payTo: payerAddress,
-      payerAddress: other.address,
+      payerAddress: other,
     });
     expect(result.ok).toBe(false);
   });
@@ -203,11 +246,7 @@ describe("PreSignedPaymentExecutor", () => {
   }
 
   it("settles handoffs in order from the user's signed payloads", async () => {
-    const wallet = generateUserWallet();
-    const { authorizations } = await signUserHandoffAuthorizations({
-      budgetCents: 500,
-      privateKey: wallet.privateKey,
-    });
+    const { authorizations } = await signHandoffsAsWallet({ budgetCents: 500 });
     const executor = new PreSignedPaymentExecutor({
       facilitator: fakeFacilitator({
         settle: { success: true, transaction: "0xuser1" },
@@ -223,11 +262,7 @@ describe("PreSignedPaymentExecutor", () => {
   });
 
   it("is unresolved when the facilitator rejects for insufficient balance", async () => {
-    const wallet = generateUserWallet();
-    const { authorizations } = await signUserHandoffAuthorizations({
-      budgetCents: 500,
-      privateKey: wallet.privateKey,
-    });
+    const { authorizations } = await signHandoffsAsWallet({ budgetCents: 500 });
     const executor = new PreSignedPaymentExecutor({
       facilitator: fakeFacilitator({
         settle: { success: false },
@@ -254,11 +289,7 @@ describe("PreSignedPaymentExecutor", () => {
   });
 
   it("is unresolved when a payload amount does not match the handoff", async () => {
-    const wallet = generateUserWallet();
-    const { authorizations } = await signUserHandoffAuthorizations({
-      budgetCents: 500,
-      privateKey: wallet.privateKey,
-    });
+    const { authorizations } = await signHandoffsAsWallet({ budgetCents: 500 });
     const executor = new PreSignedPaymentExecutor({
       facilitator: fakeFacilitator({
         settle: { success: true, transaction: "0xabc" },

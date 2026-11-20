@@ -51,13 +51,17 @@ const createJobSchema = z.object({
   paymentMode: z.enum(["demo", "user"]).optional(),
 });
 
-/** List recent jobs for the public Jobs page, newest first. */
+/** List recent jobs for the history page, newest first. Optional ?payer=0x… filters to jobs that wallet paid for. */
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsedLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
   const limit = Math.max(1, Math.min(100, Number.isInteger(parsedLimit) ? parsedLimit : 50));
+  const payer = url.searchParams.get("payer") ?? undefined;
+  if (payer !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(payer)) {
+    return NextResponse.json({ error: "payer must be a wallet address" }, { status: 400 });
+  }
   const ledger = await getLedger();
-  const jobs = await ledger.listJobs(limit);
+  const jobs = await ledger.listJobs(limit, payer);
   const items = await Promise.all(
     jobs.map(async (job) => {
       const totals = await ledger.getTotals(job.id);

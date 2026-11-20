@@ -516,8 +516,15 @@ export class PostgresLedger {
    * no accounts yet, so this is every job in the ledger, capped at
    * `limit` (1–100, default 50). The caller adds per-job totals.
    */
-  async listJobs(limit = 50): Promise<Job[]> {
+  async listJobs(limit = 50, payerAddress?: string): Promise<Job[]> {
     const safeLimit = Math.max(1, Math.min(100, Math.floor(limit) || 50));
+    if (payerAddress) {
+      const { rows } = await this.pool.query(
+        `SELECT * FROM jobs WHERE LOWER(payer_address) = LOWER($1) ORDER BY created_at DESC, id DESC LIMIT $2`,
+        [payerAddress, safeLimit],
+      );
+      return rows.map(rowToJob);
+    }
     const { rows } = await this.pool.query(
       `SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT $1`,
       [safeLimit],

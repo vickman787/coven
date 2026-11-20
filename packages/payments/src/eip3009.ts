@@ -4,11 +4,11 @@ import type { Hex } from "viem";
  * EIP-3009 transferWithAuthorization constants for Base Sepolia USDC.
  *
  * Browser-safe: this module imports only types from viem and no node
- * APIs, so both the server signer (x402.ts) and the browser signer
- * (user-wallet.ts, where the user's key lives) use exactly the same
- * domain, types, and message shape. If these ever diverge, a
- * user-signed authorization will not recover to the user's address
- * and the server will reject the job — by design.
+ * APIs, so both the server signer (x402.ts) and the browser flow
+ * (user-wallet.ts, where the connected wallet signs via WalletConnect)
+ * use exactly the same domain, types, and message shape. If these
+ * ever diverge, a user-signed authorization will not recover to the
+ * user's address and the server will reject the job — by design.
  */
 
 export const X402_VERSION = 2;

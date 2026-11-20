@@ -76,6 +76,52 @@ describe("GET /api/jobs", () => {
     const data = (await res.json()) as { jobs: unknown[] };
     expect(data.jobs).toHaveLength(1);
   });
+
+  it("filters by ?payer= to only jobs that wallet paid for", async () => {
+    const ledger = await getLedger();
+    const payerA = "0x1111111111111111111111111111111111111111";
+    const payerB = "0x2222222222222222222222222222222222222222";
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "payer a job",
+      id: "job-payer-a",
+      payerAddress: payerA,
+      paymentMode: "user",
+    });
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "payer b job",
+      id: "job-payer-b",
+      payerAddress: payerB,
+      paymentMode: "user",
+    });
+    const res = await listJobs(
+      new Request(`http://localhost/api/jobs?payer=${payerA}`),
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { jobs: { id: string }[] };
+    const ids = data.jobs.map((j) => j.id);
+    expect(ids).toContain("job-payer-a");
+    expect(ids).not.toContain("job-payer-b");
+  });
+
+  it("rejects a malformed ?payer=", async () => {
+    const res = await listJobs(
+      new Request("http://localhost/api/jobs?payer=not-an-address"),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("returns an empty list, not seeded data, when the ledger has no jobs", async () => {
+    const ledger = await getLedger();
+    const all = await ledger.listJobs(100);
+    expect(Array.isArray(all)).toBe(true);
+    // The route returns exactly what the ledger holds — no filler.
+    const res = await listJobs(new Request("http://localhost/api/jobs?limit=100"));
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { jobs: unknown[] };
+    expect(data.jobs).toHaveLength(all.length);
+  });
 });
 
 describe("GET /api/jobs/[id]", () => {
@@ -140,6 +186,35 @@ describe("POST /api/jobs/[id]/revoke", () => {
 });
 
 describe("POST /api/jobs — user-funded jobs", () => {
+  /**
+   * Stands in for the connected wallet: a throwaway key generated
+   * inside the test signs the exact typed-data requests the browser
+   * builds, then is discarded. No app code holds a user's key.
+   */
+  async function signAsThrowawayWallet(budgetCents = 500) {
+    const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
+    const {
+      buildHandoffSigningRequests,
+      handoffPayloadFromSignature,
+    } = await import("@coven/payments/user-wallet");
+    const account = privateKeyToAccount(generatePrivateKey());
+    const requests = buildHandoffSigningRequests({
+      budgetCents,
+      payerAddress: account.address,
+    });
+    const authorizations = [];
+    for (const request of requests) {
+      const signature = await account.signTypedData({
+        domain: request.domain,
+        message: request.message,
+        primaryType: request.primaryType,
+        types: request.types,
+      });
+      authorizations.push(handoffPayloadFromSignature(request, signature));
+    }
+    return { authorizations, wallet: { address: account.address } };
+  }
+
   it("rejects a user job with no signed authorizations, and creates no job", async () => {
     const res = await createJob(
       postRequest({
@@ -155,14 +230,7 @@ describe("POST /api/jobs — user-funded jobs", () => {
   });
 
   it("rejects tampered authorizations", async () => {
-    const { generateUserWallet, signUserHandoffAuthorizations } = await import(
-      "@coven/payments/user-wallet"
-    );
-    const wallet = generateUserWallet();
-    const { authorizations } = await signUserHandoffAuthorizations({
-      budgetCents: 500,
-      privateKey: wallet.privateKey,
-    });
+    const { authorizations, wallet } = await signAsThrowawayWallet(500);
     const tampered = authorizations.map((p, i) =>
       i === 0
         ? {
@@ -187,14 +255,7 @@ describe("POST /api/jobs — user-funded jobs", () => {
   });
 
   it("rejects a user job whose wallet cannot afford it, with no fallback to demo", async () => {
-    const { generateUserWallet, signUserHandoffAuthorizations } = await import(
-      "@coven/payments/user-wallet"
-    );
-    const wallet = generateUserWallet();
-    const { authorizations } = await signUserHandoffAuthorizations({
-      budgetCents: 500,
-      privateKey: wallet.privateKey,
-    });
+    const { authorizations, wallet } = await signAsThrowawayWallet(500);
     // Stub the RPC balance check: $1.00 in the wallet, $5.00 job.
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
@@ -220,14 +281,7 @@ describe("POST /api/jobs — user-funded jobs", () => {
   });
 
   it("creates a user-funded job with payer attribution when funded", async () => {
-    const { generateUserWallet, signUserHandoffAuthorizations } = await import(
-      "@coven/payments/user-wallet"
-    );
-    const wallet = generateUserWallet();
-    const { authorizations } = await signUserHandoffAuthorizations({
-      budgetCents: 500,
-      privateKey: wallet.privateKey,
-    });
+    const { authorizations, wallet } = await signAsThrowawayWallet(500);
     // Stub the RPC balance check: $20.00 in the wallet.
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () =>

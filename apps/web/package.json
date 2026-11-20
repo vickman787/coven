@@ -1,6 +1,8 @@
 {
   "dependencies": {
     "@coven/shared": "workspace:*",
+    "@tanstack/react-query": "^5.108.1",
+    "@wagmi/core": "^3.6.9",
     "next": "16.0.10",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -9,6 +11,8 @@
     "@coven/payments": "workspace:*",
     "pg": "^8.13.0",
     "pg-mem": "^3.0.0",
+    "viem": "^2.58.2",
+    "wagmi": "^3.7.11",
     "zod": "^3.25.76"
   },
   "devDependencies": {

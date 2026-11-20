@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import WalletProvider from "./components/WalletProvider";
 
 export const metadata: Metadata = {
   description:
@@ -12,7 +13,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   );
 }

@@ -7,8 +7,44 @@ Kiroween 2026, Frankenstein category. Deadline: Friday, December 4, 2026 at 2:00
 ## Status — Step 4 done, except deploy
 
 Step 4 is done: the judge path works end to end in the web app, with no
-login. **81 tests pass, 3 skipped** (ledger 25+1, payments 31+2 live,
-crew 7, web 18).
+login. **92 tests pass, 3 skipped** (ledger 25+1, payments 31+2 live,
+crew 7, web 29).
+
+## Redesign — multi-space app, browser-extension wallet (added 2026-11-20)
+
+Coven is no longer one page. The routes are:
+
+- `/` — landing page only: what Coven is, how it works, the 5 agents,
+  the ledger, honest limits, CTA into the workspace. No summon form.
+- `/workspace` — summon a job (empty input, example as placeholder
+  only), connect a wallet, your jobs at a glance.
+- `/workspace/agents` — Agents at Work space: the most recent running
+  job's agents, live.
+- `/workspace/history` — Work History: real jobs from the ledger, with
+  All / My jobs / Demo filters.
+- `/workspace/jobs/<id>/agents`, `/ledger`, `/result` — one job's own
+  spaces, separate routes, not tabs. Old links redirect: `/jobs` →
+  history, `/jobs/<id>` → the job's Agents space, `?job=<id>` → the
+  same. The judge path is still landing → workspace → summon, no login.
+
+**Browser-extension wallet:** users connect the wallet extension
+already installed on their PC (MetaMask, Rainbow, Coinbase Wallet)
+with a plain "Connect browser wallet" button — wagmi's injected
+connector, `window.ethereum`. No WalletConnect, no QR code, no
+project ID, nothing to configure. No browser-generated wallet, no
+private key anywhere in the app — the key never leaves the
+extension. If no extension is installed, the card says so and links
+to the install pages, and jobs run on the demo wallet only. The
+extension signs one EIP-3009 authorization per handoff; the server
+validates them and settles via the facilitator. Self-transfer model,
+as before: test USDC is not spent, the onchain settlement is real.
+Mobile wallets without a browser extension cannot connect this way.
+
+**Mock data cleared:** the app shows only real data — jobs from the
+ledger, balances from the chain, real hashes or none. The job input
+starts empty; history and agents show real empty states ("No jobs
+yet", "No job running"). Test fixtures in `*.test.ts` and the real
+historical hashes below are not app data and were left alone.
 
 ## Public v1 — added 2026-11-20, judge path kept intact
 
@@ -34,14 +70,15 @@ Still NOT in public v1: accounts (no auth yet — history is public by
 job link), and more job types than the research brief. Those are the
 follow-up decisions after the Kiroween submission.
 
-## Per-user wallets — added 2026-11-20
+## Per-user wallets — added 2026-11-20 (browser extension, see above)
 
 A public user can fund jobs from their OWN Base Sepolia testnet wallet
-instead of the shared demo wallet. **Design: the private key never
-leaves the user's browser.** "Create my testnet wallet" on the home
-page generates a wallet in the browser (key in localStorage only);
-fund it with free test USDC at https://faucet.circle.com (USDC, Base
-Sepolia). When summoning, the browser checks the balance, then signs
+instead of the shared demo wallet. The browser-generated wallet
+("Create my testnet wallet", key in localStorage) was removed
+entirely on 2026-11-20, replaced first by Reown AppKit / WalletConnect
+and then, the same day, by the injected browser-extension connector
+at the user's request — no WalletConnect, no QR code, no project ID.
+See the Redesign section above. The money flow is unchanged: the
 one EIP-3009 authorization per handoff (4, amounts 40/40/10/10 of the
 budget) and sends only those signed payloads. The server validates
 them (signer, amounts, payee, nonce, 10-minute window) and settles

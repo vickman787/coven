@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRole, Job, LedgerTotals, Payment, Reservation } from "@coven/shared";
 
 export interface JobBrief {
@@ -49,6 +50,45 @@ export async function revokeAgent(
     method: "POST",
   });
   if (!res.ok) throw new Error("could not revoke agent");
+}
+
+/**
+ * Live job state for one job page. Loads once, then polls every 2s
+ * while the job is still running (created/running). Each job space
+ * page (agents / ledger / result) uses this hook on its own — one
+ * page, one subscription.
+ */
+export function useJobState(
+  jobId: string,
+): { error: string | null; reload: () => Promise<void>; state: JobState | null } {
+  const [state, setState] = useState<JobState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const next = await fetchJobState(jobId);
+      setState(next);
+    } catch {
+      setError("Lost connection to the job. Retrying…");
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!state) return;
+    const active = state.job.status === "created" || state.job.status === "running";
+    if (!active) return;
+    pollRef.current = setInterval(() => void load(), 2000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [state?.job.status, load]);
+
+  return { error, reload: load, state };
 }
 
 export function dollars(cents: number): string {
