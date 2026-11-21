@@ -36,8 +36,10 @@ const opArbitrary = fc.array(
 );
 
 describe("ledger property tests", () => {
-  it("the invariant holds after any sequence of operations", async () => {
-    await fc.assert(
+  it(
+    "the invariant holds after any sequence of operations",
+    async () => {
+      await fc.assert(
       fc.asyncProperty(opArbitrary, async (ops) => {
         const ledger = await createTestLedger();
         await createTestJob(ledger, 500);
@@ -117,7 +119,11 @@ describe("ledger property tests", () => {
       }),
       { numRuns: 25 },
     );
-  });
+    },
+    // 25 fast-check runs against pg-mem take ~6s on this small VM;
+    // the 5s default timeout is too tight and flakes, not the invariant.
+    30_000,
+  );
 
   it("property test caught no invariant bug in the test run itself", async () => {
     // This test documents the property-test run: if the test above fails,
