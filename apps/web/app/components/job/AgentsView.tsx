@@ -22,7 +22,13 @@ const AGENTS: { role: AgentRole; blurb: string }[] = [
  * WITH an x402 hash; a finished agent with an unresolved payment is
  * "complete" — never shown as paid.
  */
-export default function AgentsView({ jobId }: { jobId: string }) {
+export default function AgentsView({
+  base = "/workspace/jobs",
+  jobId,
+}: {
+  base?: string;
+  jobId: string;
+}) {
   const { error, reload, state } = useJobState(jobId);
   const [confirmRevoke, setConfirmRevoke] = useState<AgentRole | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
@@ -135,7 +141,7 @@ export default function AgentsView({ jobId }: { jobId: string }) {
       </div>
       {state.job.status === "done" ? (
         <Link
-          href={`/workspace/jobs/${jobId}/result`}
+          href={`${base}/${jobId}/result`}
           className="mt-6 block w-full rounded-lg bg-[#f5c518] px-6 py-4 text-center text-lg font-bold text-black hover:brightness-110"
         >
           See the Result

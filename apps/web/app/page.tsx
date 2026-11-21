@@ -47,20 +47,21 @@ export default function Home() {
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Link
-            href="/workspace"
+            href="/app"
             className="flex-1 rounded-lg bg-[#f5c518] px-6 py-4 text-center text-lg font-bold text-black hover:brightness-110"
           >
-            Open the workspace
+            Launch app
           </Link>
           <Link
-            href="/workspace/history"
+            href="/demo"
             className="flex-1 rounded-lg border border-[#7c3aed] px-6 py-4 text-center text-lg font-bold text-[#a78bfa]"
           >
-            See recent jobs
+            Try the demo
           </Link>
         </div>
         <p className="mt-3 text-center text-sm text-[#9a9ab0]">
-          No login. No signup. Test USDC on Base Sepolia.
+          Sign in with your wallet. No password, no email. Test USDC on
+          Base Sepolia.
         </p>
 
         <section className="mt-16">
@@ -124,20 +125,20 @@ export default function Home() {
             <li>Test USDC on Base Sepolia only — the money has no real value yet.</li>
             <li>One job type for now: a research brief, sourced from Wikipedia. Give the job a topic for a sharp brief.</li>
             <li>Budget $1.00–$10.00, crew of 5 agents.</li>
-            <li>No accounts yet. Jobs you summon are remembered on this device, and anyone with a job link can view that job.</li>
+            <li>Your account is your wallet: sign in with your browser wallet extension, and your jobs and payments follow your address. Demo jobs need no sign-in — they run on the shared demo wallet and are labelled as such.</li>
             <li>Pay from your own wallet with your browser wallet extension, or use the demo wallet. Each job pays your wallet to itself (a self-transfer), so your test USDC is not spent.</li>
           </ul>
           <p className="mt-4 text-sm text-[#9a9ab0]">
-            Accounts and more job types are next — after the Kiroween
-            submission on December 4.
+            More job types are next — after the Kiroween submission on
+            December 4.
           </p>
         </section>
 
         <footer className="mt-10 text-sm text-[#9a9ab0]">
           Settled + reserved + unresolved = approved budget. Always. ·{" "}
-          <Link href="/workspace" className="text-[#a78bfa] underline">Workspace</Link>
+          <Link href="/app" className="text-[#a78bfa] underline">Launch app</Link>
           {" · "}
-          <Link href="/workspace/history" className="text-[#a78bfa] underline">History</Link>
+          <Link href="/demo" className="text-[#a78bfa] underline">Try the demo</Link>
         </footer>
       </main>
     </>

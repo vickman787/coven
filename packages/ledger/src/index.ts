@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,30 @@ import type {
  * (settled, with an x402 hash) or released (failed). It is never
  * shown as settled.
  */
+
+export interface Account {
+  address: string;
+  displayName: string | null;
+  createdAt?: string;
+}
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+function normalizeAddress(address: string): string {
+  if (!ADDRESS_RE.test(address)) {
+    throw new Error("address must be a valid Ethereum address (0x + 40 hex chars)");
+  }
+  return address.toLowerCase();
+}
+
+function rowToAccount(row: Record<string, unknown>): Account {
+  const createdAt = toIso(row.created_at);
+  return {
+    address: row.address as string,
+    displayName: (row.display_name as string | null) ?? null,
+    ...(createdAt ? { createdAt } : {}),
+  };
+}
 
 export interface PoolLike {
   query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
@@ -574,6 +599,194 @@ export class PostgresLedger {
         url: string;
       }[],
     };
+  }
+
+  // ------------------------------------------------------------------
+  // Wallet-based accounts, login nonces, and sessions.
+  //
+  // An account is an Ethereum address (stored lowercased, compared
+  // case-insensitively). Login is a signed nonce: the client asks for a
+  // fresh nonce, signs it with the wallet, and the server consumes it
+  // once to mint a session token. No passwords anywhere.
+  // ------------------------------------------------------------------
+
+  /** Create an account for an address, or return the existing one. */
+  async createAccount(address: string): Promise<Account> {
+    const normalized = normalizeAddress(address);
+    const { rows } = await this.pool.query(
+      `INSERT INTO accounts (address) VALUES ($1)
+       ON CONFLICT (address) DO NOTHING RETURNING *`,
+      [normalized],
+    );
+    if (rows.length > 0) return rowToAccount(rows[0]!);
+    const existing = await this.getAccount(normalized);
+    if (!existing) throw new Error(`account not found after create: ${normalized}`);
+    return existing;
+  }
+
+  async getAccount(address: string): Promise<Account | null> {
+    const normalized = normalizeAddress(address);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM accounts WHERE address = $1`,
+      [normalized],
+    );
+    return rows.length > 0 ? rowToAccount(rows[0]!) : null;
+  }
+
+  /** Set an account's display name (trimmed, 1–40 chars). */
+  async setDisplayName(address: string, displayName: string): Promise<Account> {
+    const normalized = normalizeAddress(address);
+    const trimmed = displayName.trim();
+    if (trimmed.length < 1 || trimmed.length > 40) {
+      throw new Error("displayName must be 1–40 characters");
+    }
+    const { rows } = await this.pool.query(
+      `UPDATE accounts SET display_name = $1, updated_at = now()
+       WHERE address = $2 RETURNING *`,
+      [trimmed, normalized],
+    );
+    if (rows.length === 0) throw new Error(`account not found: ${normalized}`);
+    return rowToAccount(rows[0]!);
+  }
+
+  /**
+   * Mint a fresh login nonce for an address, expiring in 10 minutes.
+   * Any existing nonce for the address is replaced (one active nonce).
+   */
+  async createLoginNonce(address: string): Promise<{ nonce: string; expiresAt: string }> {
+    const normalized = normalizeAddress(address);
+    const nonce = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await this.pool.query(`DELETE FROM auth_nonces WHERE address = $1`, [normalized]);
+    await this.pool.query(
+      `INSERT INTO auth_nonces (address, nonce, expires_at) VALUES ($1, $2, $3)`,
+      [normalized, nonce, expiresAt.toISOString()],
+    );
+    return { nonce, expiresAt: expiresAt.toISOString() };
+  }
+
+  /**
+   * Consume a login nonce. Returns true only for a matching unexpired
+   * nonce. The nonce is deleted whenever it exists (single-use), and
+   * expired nonces are deleted too when encountered.
+   */
+  async consumeLoginNonce(address: string, nonce: string): Promise<boolean> {
+    const normalized = normalizeAddress(address);
+    const { rows } = await this.pool.query(
+      `DELETE FROM auth_nonces WHERE address = $1 AND nonce = $2 RETURNING expires_at`,
+      [normalized, nonce],
+    );
+    if (rows.length === 0) return false;
+    const expiresAt = rows[0]!.expires_at;
+    const expiry = expiresAt instanceof Date ? expiresAt : new Date(expiresAt as string);
+    return expiry.getTime() > Date.now();
+  }
+
+  /**
+   * Mint a session token for an account, expiring in 30 days.
+   * The account must already exist (the caller creates it on first sign-in).
+   */
+  async createSession(address: string): Promise<{ token: string; expiresAt: string }> {
+    const normalized = normalizeAddress(address);
+    const account = await this.getAccount(normalized);
+    if (!account) throw new Error(`account not found: ${normalized}`);
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await this.pool.query(
+      `INSERT INTO sessions (id, address, expires_at) VALUES ($1, $2, $3)`,
+      [token, normalized, expiresAt.toISOString()],
+    );
+    return { token, expiresAt: expiresAt.toISOString() };
+  }
+
+  /** Resolve a session token, or null when missing or expired. */
+  async getSession(token: string): Promise<{ address: string; expiresAt: string } | null> {
+    const { rows } = await this.pool.query(
+      `SELECT address, expires_at FROM sessions WHERE id = $1`,
+      [token],
+    );
+    if (rows.length === 0) return null;
+    const expiresAt = rows[0]!.expires_at;
+    const expiry = expiresAt instanceof Date ? expiresAt : new Date(expiresAt as string);
+    if (expiry.getTime() <= Date.now()) {
+      await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [token]);
+      return null;
+    }
+    return {
+      address: rows[0]!.address as string,
+      expiresAt: expiry.toISOString(),
+    };
+  }
+
+  async deleteSession(token: string): Promise<void> {
+    await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [token]);
+  }
+
+  /** Job/payment aggregates for one wallet's dashboard. */
+  async getAccountDashboard(address: string): Promise<{
+    totalJobs: number;
+    doneJobs: number;
+    runningJobs: number;
+    failedJobs: number;
+    totalApprovedCents: number;
+    totalSettledCents: number;
+  }> {
+    const normalized = normalizeAddress(address);
+    const { rows } = await this.pool.query(
+      `SELECT
+         COUNT(*) AS total_jobs,
+         COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS done_jobs,
+         COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS running_jobs,
+         COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_jobs,
+         COALESCE(SUM(approved_budget_cents), 0) AS total_approved_cents,
+         COALESCE((SELECT SUM(p.amount_cents) FROM payments p
+                   JOIN jobs j2 ON j2.id = p.job_id
+                   WHERE LOWER(j2.payer_address) = LOWER($1) AND p.status = 'settled'), 0) AS total_settled_cents
+       FROM jobs WHERE LOWER(payer_address) = LOWER($1)`,
+      [normalized],
+    );
+    const row = rows[0]!;
+    return {
+      totalJobs: Number(row.total_jobs),
+      doneJobs: Number(row.done_jobs),
+      runningJobs: Number(row.running_jobs),
+      failedJobs: Number(row.failed_jobs),
+      totalApprovedCents: Number(row.total_approved_cents),
+      totalSettledCents: Number(row.total_settled_cents),
+    };
+  }
+
+  /** That wallet's payments, newest first (limit clamped 1–100). */
+  async listAccountPayments(
+    address: string,
+    limit = 50,
+  ): Promise<
+    Array<{
+      jobId: string;
+      description: string;
+      amountCents: number;
+      status: string;
+      x402Hash?: string;
+      createdAt?: string;
+    }>
+  > {
+    const normalized = normalizeAddress(address);
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit) || 50));
+    const { rows } = await this.pool.query(
+      `SELECT p.job_id, j.description, p.amount_cents, p.status, p.x402_hash, p.created_at
+       FROM payments p JOIN jobs j ON j.id = p.job_id
+       WHERE LOWER(j.payer_address) = LOWER($1)
+       ORDER BY p.created_at DESC, p.id DESC LIMIT $2`,
+      [normalized, safeLimit],
+    );
+    return rows.map((row) => ({
+      jobId: row.job_id as string,
+      description: row.description as string,
+      amountCents: row.amount_cents as number,
+      status: row.status as string,
+      ...(row.x402_hash ? { x402Hash: row.x402_hash as string } : {}),
+      ...(toIso(row.created_at) ? { createdAt: toIso(row.created_at) } : {}),
+    }));
   }
 }
 

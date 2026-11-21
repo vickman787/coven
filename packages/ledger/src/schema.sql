@@ -56,3 +56,30 @@ CREATE TABLE IF NOT EXISTS job_results (
 
 CREATE INDEX IF NOT EXISTS idx_reservations_job ON reservations(job_id);
 CREATE INDEX IF NOT EXISTS idx_payments_job ON payments(job_id);
+
+-- Wallet-based accounts (2026-11-21): an account is an Ethereum address
+-- (stored lowercased). Login is a signed nonce (SIWE-style, no password);
+-- sessions are random bearer tokens.
+CREATE TABLE IF NOT EXISTS accounts (
+  address TEXT PRIMARY KEY,
+  display_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS auth_nonces (
+  address TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (address, nonce)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  address TEXT NOT NULL REFERENCES accounts(address),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_address ON sessions(address);
+CREATE INDEX IF NOT EXISTS idx_auth_nonces_expires ON auth_nonces(expires_at);

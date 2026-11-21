@@ -66,7 +66,9 @@ export default function ConnectWalletCard() {
       <p className="mt-2 text-sm text-[#9a9ab0]">
         Jobs can be paid from <strong className="text-[#f8f7ff]">your own testnet wallet</strong>,
         not the shared demo wallet. Connect your browser wallet extension
-        and your jobs will settle from it. No account, no login, no QR code.
+        and your jobs will settle from it. Your key stays in the extension —
+        signing in creates your Coven account from this wallet. No password,
+        no QR code.
       </p>
 
       {extensionInstalled === false ? (

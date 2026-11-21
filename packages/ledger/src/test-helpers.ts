@@ -5,13 +5,23 @@ import { fileURLToPath } from "node:url";
 import { PostgresLedger } from "./index.js";
 
 export async function createTestLedger(): Promise<PostgresLedger> {
+  const { ledger } = await createTestLedgerWithPool();
+  return ledger;
+}
+
+/** Like createTestLedger, but also exposes the pg-mem pool so tests can
+ *  insert rows directly (e.g. an already-expired nonce or session). */
+export async function createTestLedgerWithPool(): Promise<{
+  ledger: PostgresLedger;
+  pool: { query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }> };
+}> {
   const db = newDb();
   // pg-mem adapter provides a pg-compatible Pool.
   const { Pool } = db.adapters.createPg();
   const pool = new Pool() as never;
   const ledger = new PostgresLedger(pool);
   await ledger.init();
-  return ledger;
+  return { ledger, pool: pool as never };
 }
 
 export function schemaSql(): string {

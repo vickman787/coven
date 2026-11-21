@@ -9,6 +9,7 @@ import {
   runJobBackground,
   storeUserAuthorizations,
 } from "@/lib/coven";
+import { getSessionAccountFromRequest } from "@/lib/auth";
 
 export const maxDuration = 300;
 
@@ -51,12 +52,19 @@ const createJobSchema = z.object({
   paymentMode: z.enum(["demo", "user"]).optional(),
 });
 
-/** List recent jobs for the history page, newest first. Optional ?payer=0x… filters to jobs that wallet paid for. */
+/** List recent jobs, newest first. `?payer=0x…` filters to jobs that wallet paid for; `?mine=1` lists only the signed-in account's jobs (requires sign-in). */
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsedLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
   const limit = Math.max(1, Math.min(100, Number.isInteger(parsedLimit) ? parsedLimit : 50));
-  const payer = url.searchParams.get("payer") ?? undefined;
+  let payer = url.searchParams.get("payer") ?? undefined;
+  if (url.searchParams.get("mine") === "1") {
+    const account = await getSessionAccountFromRequest(request);
+    if (!account) {
+      return NextResponse.json({ error: "sign in first" }, { status: 401 });
+    }
+    payer = account.address;
+  }
   if (payer !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(payer)) {
     return NextResponse.json({ error: "payer must be a wallet address" }, { status: 400 });
   }
@@ -82,12 +90,15 @@ export async function GET(request: Request) {
  *
  * Two modes, never mixed:
  * - demo (default, the judge path): the shared test wallet, as before.
- * - user: the job is paid from the user's own browser wallet. The
- *   request must carry 4 signed EIP-3009 authorizations (one per
- *   handoff, amounts = the budget split). They are validated here —
- *   signer, amounts, payee, nonce, validity window — and the wallet's
- *   test USDC balance is checked. Any failure is a 400 and NO job is
- *   created: a user job never silently falls back to the shared wallet.
+ *   No sign-in needed.
+ * - user: the job is paid from the signed-in account's own browser
+ *   wallet. The request must carry 4 signed EIP-3009 authorizations
+ *   (one per handoff, amounts = the budget split) AND the payer
+ *   address must match the signed-in account — a job can only spend
+ *   its owner's wallet. They are validated here — signer, amounts,
+ *   payee, nonce, validity window — and the wallet's test USDC
+ *   balance is checked. Any failure is a 400 and NO job is created:
+ *   a user job never silently falls back to the shared wallet.
  *   The private key is never in this request; only signed payloads.
  */
 export async function POST(request: Request) {
@@ -106,7 +117,22 @@ export async function POST(request: Request) {
   if (paymentMode === "user") {
     const payerAddress = parsed.data.payerAddress;
     const supplied = parsed.data.authorizations ?? [];
-    if (!payerAddress || supplied.length === 0) {
+    // A user-funded job spends the signed-in account's wallet, so
+    // it needs a session — and the payer must be that account.
+    const account = await getSessionAccountFromRequest(request);
+    if (!account) {
+      return NextResponse.json(
+        { error: "sign in with your wallet first — a user-funded job spends your account's wallet" },
+        { status: 401 },
+      );
+    }
+    if (!payerAddress || payerAddress.toLowerCase() !== account.address.toLowerCase()) {
+      return NextResponse.json(
+        { error: "a user-funded job must be paid from the signed-in account's wallet" },
+        { status: 403 },
+      );
+    }
+    if (supplied.length === 0) {
       return NextResponse.json(
         { error: "a user-funded job needs your wallet address and signed payment authorizations" },
         { status: 400 },

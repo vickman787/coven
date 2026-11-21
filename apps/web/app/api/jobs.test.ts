@@ -2,14 +2,45 @@ import { describe, expect, it } from "vitest";
 import { GET as listJobs, POST as createJob } from "./jobs/route.js";
 import { GET as getJob } from "./jobs/[id]/route.js";
 import { POST as revoke } from "./jobs/[id]/revoke/route.js";
+import { POST as requestNonce } from "./auth/nonce/route.js";
+import { POST as verify } from "./auth/verify/route.js";
 import { getLedger } from "../../lib/coven.js";
 
-function postRequest(body: unknown): Request {
-  return new Request("http://localhost/api/jobs", {
+function postRequest(
+  body: unknown,
+  cookie?: string,
+  url = "http://localhost/api/jobs",
+): Request {
+  return new Request(url, {
     body: JSON.stringify(body),
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {}),
+    },
     method: "POST",
   });
+}
+
+/** Sign in as a throwaway wallet and return its session cookie. */
+async function signInAsThrowaway(): Promise<{ address: string; cookie: string }> {
+  const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
+  const account = privateKeyToAccount(generatePrivateKey());
+  const nonceRes = await requestNonce(
+    postRequest({ address: account.address }, undefined, "http://localhost/api/auth/nonce"),
+  );
+  expect(nonceRes.status).toBe(200);
+  const { message } = (await nonceRes.json()) as { message: string };
+  const signature = await account.signMessage({ message });
+  const verifyRes = await verify(
+    postRequest(
+      { address: account.address, message, signature },
+      undefined,
+      "http://localhost/api/auth/verify",
+    ),
+  );
+  expect(verifyRes.status).toBe(200);
+  const cookie = (verifyRes.headers.get("set-cookie") ?? "").split(";")[0]!;
+  return { address: account.address, cookie };
 }
 
 describe("POST /api/jobs", () => {
@@ -112,6 +143,39 @@ describe("GET /api/jobs", () => {
     expect(res.status).toBe(400);
   });
 
+  it("?mine=1 needs sign-in and lists only the account's jobs", async () => {
+    const signedOut = await listJobs(
+      new Request("http://localhost/api/jobs?mine=1"),
+    );
+    expect(signedOut.status).toBe(401);
+    const { address, cookie } = await signInAsThrowaway();
+    const ledger = await getLedger();
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "mine job",
+      id: "job-mine-a",
+      payerAddress: address,
+      paymentMode: "user",
+    });
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "not mine job",
+      id: "job-mine-b",
+      payerAddress: "0x6666666666666666666666666666666666666666",
+      paymentMode: "user",
+    });
+    const res = await listJobs(
+      new Request("http://localhost/api/jobs?mine=1", {
+        headers: { cookie },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { jobs: { id: string }[] };
+    const ids = data.jobs.map((j) => j.id);
+    expect(ids).toContain("job-mine-a");
+    expect(ids).not.toContain("job-mine-b");
+  });
+
   it("returns an empty list, not seeded data, when the ledger has no jobs", async () => {
     const ledger = await getLedger();
     const all = await ledger.listJobs(100);
@@ -183,6 +247,35 @@ describe("POST /api/jobs/[id]/revoke", () => {
     const totals = await ledger.getTotals("job-api-revoke");
     expect(totals.reservedCents).toBe(0);
   });
+
+  it("refuses to revoke a user job's agent for anyone but its owner", async () => {
+    const { address, cookie } = await signInAsThrowaway();
+    const ledger = await getLedger();
+    await ledger.createJob({
+      approvedBudgetCents: 500,
+      description: "revoke ownership test",
+      id: "job-api-revoke-owner",
+      payerAddress: address,
+      paymentMode: "user",
+    });
+    await ledger.reserve({
+      agentRole: "seeker",
+      amountCents: 200,
+      idempotencyKey: "res-api-revoke-owner",
+      jobId: "job-api-revoke-owner",
+    });
+    const stranger = await revoke(postRequest({ agent: "seeker" }), {
+      params: Promise.resolve({ id: "job-api-revoke-owner" }),
+    });
+    expect(stranger.status).toBe(403);
+    expect(await ledger.isRevoked("job-api-revoke-owner", "seeker")).toBe(false);
+    const owner = await revoke(
+      postRequest({ agent: "seeker" }, cookie),
+      { params: Promise.resolve({ id: "job-api-revoke-owner" }) },
+    );
+    expect(owner.status).toBe(200);
+    expect(await ledger.isRevoked("job-api-revoke-owner", "seeker")).toBe(true);
+  });
 });
 
 describe("POST /api/jobs — user-funded jobs", () => {
@@ -190,6 +283,8 @@ describe("POST /api/jobs — user-funded jobs", () => {
    * Stands in for the connected wallet: a throwaway key generated
    * inside the test signs the exact typed-data requests the browser
    * builds, then is discarded. No app code holds a user's key.
+   * The wallet is also signed in, so the job passes the session
+   * check for its own payer address.
    */
   async function signAsThrowawayWallet(budgetCents = 500) {
     const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
@@ -212,17 +307,68 @@ describe("POST /api/jobs — user-funded jobs", () => {
       });
       authorizations.push(handoffPayloadFromSignature(request, signature));
     }
-    return { authorizations, wallet: { address: account.address } };
+    const nonceRes = await requestNonce(
+      postRequest({ address: account.address }, undefined, "http://localhost/api/auth/nonce"),
+    );
+    expect(nonceRes.status).toBe(200);
+    const { message } = (await nonceRes.json()) as { message: string };
+    const loginSignature = await account.signMessage({ message });
+    const verifyRes = await verify(
+      postRequest(
+        { address: account.address, message, signature: loginSignature },
+        undefined,
+        "http://localhost/api/auth/verify",
+      ),
+    );
+    expect(verifyRes.status).toBe(200);
+    const cookie = (verifyRes.headers.get("set-cookie") ?? "").split(";")[0]!;
+    return { authorizations, cookie, wallet: { address: account.address } };
   }
 
-  it("rejects a user job with no signed authorizations, and creates no job", async () => {
+  it("rejects a user job with no session, and creates no job", async () => {
+    const { authorizations, wallet } = await signAsThrowawayWallet(500);
     const res = await createJob(
       postRequest({
+        authorizations,
         budgetCents: 500,
         job: "research 10 competitors and write a one-page brief",
-        payerAddress: "0x38c80359CD99245f2Fae9C284579A10Af7a41932",
+        payerAddress: wallet.address,
         paymentMode: "user",
       }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a user job whose payer is not the signed-in account", async () => {
+    const { authorizations, cookie } = await signAsThrowawayWallet(500);
+    const other = "0x5555555555555555555555555555555555555555";
+    const res = await createJob(
+      postRequest(
+        {
+          authorizations,
+          budgetCents: 500,
+          job: "research 10 competitors and write a one-page brief",
+          payerAddress: other,
+          paymentMode: "user",
+        },
+        cookie,
+      ),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects a user job with no signed authorizations, and creates no job", async () => {
+    const { cookie, wallet } = await signAsThrowawayWallet(500);
+    const res = await createJob(
+      postRequest(
+        {
+          budgetCents: 500,
+          job: "research 10 competitors and write a one-page brief",
+          payerAddress: wallet.address,
+          paymentMode: "user",
+        },
+        cookie,
+      ),
     );
     expect(res.status).toBe(400);
     const data = (await res.json()) as { error?: string };
@@ -230,7 +376,7 @@ describe("POST /api/jobs — user-funded jobs", () => {
   });
 
   it("rejects tampered authorizations", async () => {
-    const { authorizations, wallet } = await signAsThrowawayWallet(500);
+    const { authorizations, cookie, wallet } = await signAsThrowawayWallet(500);
     const tampered = authorizations.map((p, i) =>
       i === 0
         ? {
@@ -243,19 +389,22 @@ describe("POST /api/jobs — user-funded jobs", () => {
         : p,
     );
     const res = await createJob(
-      postRequest({
-        authorizations: tampered,
-        budgetCents: 500,
-        job: "research 10 competitors and write a one-page brief",
-        payerAddress: wallet.address,
-        paymentMode: "user",
-      }),
+      postRequest(
+        {
+          authorizations: tampered,
+          budgetCents: 500,
+          job: "research 10 competitors and write a one-page brief",
+          payerAddress: wallet.address,
+          paymentMode: "user",
+        },
+        cookie,
+      ),
     );
     expect(res.status).toBe(400);
   });
 
   it("rejects a user job whose wallet cannot afford it, with no fallback to demo", async () => {
-    const { authorizations, wallet } = await signAsThrowawayWallet(500);
+    const { authorizations, cookie, wallet } = await signAsThrowawayWallet(500);
     // Stub the RPC balance check: $1.00 in the wallet, $5.00 job.
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
@@ -264,13 +413,16 @@ describe("POST /api/jobs — user-funded jobs", () => {
       })) as unknown as typeof fetch;
     try {
       const res = await createJob(
-        postRequest({
-          authorizations,
-          budgetCents: 500,
-          job: "research 10 competitors and write a one-page brief",
-          payerAddress: wallet.address,
-          paymentMode: "user",
-        }),
+        postRequest(
+          {
+            authorizations,
+            budgetCents: 500,
+            job: "research 10 competitors and write a one-page brief",
+            payerAddress: wallet.address,
+            paymentMode: "user",
+          },
+          cookie,
+        ),
       );
       expect(res.status).toBe(400);
       const data = (await res.json()) as { error?: string };
@@ -281,7 +433,7 @@ describe("POST /api/jobs — user-funded jobs", () => {
   });
 
   it("creates a user-funded job with payer attribution when funded", async () => {
-    const { authorizations, wallet } = await signAsThrowawayWallet(500);
+    const { authorizations, cookie, wallet } = await signAsThrowawayWallet(500);
     // Stub the RPC balance check: $20.00 in the wallet.
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
@@ -290,13 +442,16 @@ describe("POST /api/jobs — user-funded jobs", () => {
       })) as unknown as typeof fetch;
     try {
       const res = await createJob(
-        postRequest({
-          authorizations,
-          budgetCents: 500,
-          job: "research 10 competitors and write a one-page brief",
-          payerAddress: wallet.address,
-          paymentMode: "user",
-        }),
+        postRequest(
+          {
+            authorizations,
+            budgetCents: 500,
+            job: "research 10 competitors and write a one-page brief",
+            payerAddress: wallet.address,
+            paymentMode: "user",
+          },
+          cookie,
+        ),
       );
       expect(res.status).toBe(202);
       const data = (await res.json()) as { jobId: string };

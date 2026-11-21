@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Old history URL — history now lives in the workspace. */
+/** Old history URL — jobs now live in the app. */
 export default function JobsRedirectPage() {
-  redirect("/workspace/history");
+  redirect("/app/jobs");
 }

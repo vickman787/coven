@@ -128,18 +128,22 @@ describe("no private keys in the app", () => {
 });
 
 describe("mock data removal", () => {
-  it("the workspace job input starts empty — the example is placeholder text only", () => {
-    const workspace = readFileSync(
-      path.join(WEB_ROOT, "app", "workspace", "page.tsx"),
-      "utf-8",
-    );
-    // Empty input, example as grey placeholder.
-    expect(workspace).toContain('useState("")');
-    expect(workspace).toContain("placeholder={JOB_PLACEHOLDER}");
-    // Never prefilled, never submitted as a job.
-    expect(workspace).not.toContain('useState("research');
-    expect(workspace).not.toContain("EXAMPLE_JOB");
-    expect(workspace).not.toContain("useState(EXAMPLE_JOB)");
+  it("every job input starts empty — the example is placeholder text only", () => {
+    // The dashboard summon form and the public demo form are the
+    // only places a job is typed. Both start empty.
+    for (const file of [
+      path.join(WEB_ROOT, "app", "app", "components", "SummonForm.tsx"),
+      path.join(WEB_ROOT, "app", "demo", "page.tsx"),
+    ]) {
+      const content = readFileSync(file, "utf-8");
+      // Empty input, example as grey placeholder.
+      expect(content).toContain('useState("")');
+      expect(content).toContain("placeholder={JOB_PLACEHOLDER}");
+      // Never prefilled, never submitted as a job.
+      expect(content).not.toContain('useState("research');
+      expect(content).not.toContain("EXAMPLE_JOB");
+      expect(content).not.toContain("useState(EXAMPLE_JOB)");
+    }
   });
 
   it("the landing page has no summon form and no wallet card", () => {
@@ -147,7 +151,8 @@ describe("mock data removal", () => {
     expect(landing).not.toContain("<form");
     expect(landing).not.toContain("summonCoven");
     expect(landing).not.toContain("UserWallet");
-    expect(landing).toContain("/workspace");
+    expect(landing).toContain("/app");
+    expect(landing).toContain("/demo");
   });
 
   it("no app source hardcodes a job, a balance, or a payment hash", () => {

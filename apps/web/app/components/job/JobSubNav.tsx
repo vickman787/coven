@@ -10,18 +10,20 @@ const SPACES: [JobSpace, string][] = [
   ["result", "The Result"],
 ];
 
-/** Navigation between a job's three spaces. Not tabs on one page — separate routes. */
+/** Navigation between a job's three spaces. Not tabs on one page — separate routes. `base` is the job's parent route: the public viewer (/workspace/jobs) or the app (/app/jobs). */
 export default function JobSubNav({
   active,
+  base = "/workspace/jobs",
   jobId,
 }: {
   active: JobSpace;
+  base?: string;
   jobId: string;
 }) {
   return (
     <nav className="mt-8 flex flex-wrap gap-2">
       {SPACES.map(([key, label]) => {
-        const href = `/workspace/jobs/${jobId}/${key}`;
+        const href = `${base}/${jobId}/${key}`;
         return active === key ? (
           <span
             key={key}

@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getLedger } from "@/lib/coven";
 import { agentRoleSchema } from "@coven/shared";
+import { getSessionAccountFromRequest } from "@/lib/auth";
 
 const revokeSchema = z.object({ agent: agentRoleSchema });
 
-/** Warden flow: revoke an agent. Its reserved budget is released. */
+/**
+ * Warden flow: revoke an agent. Its reserved budget is released.
+ * A job paid from a user's wallet can only be revoked by that
+ * account; demo jobs stay open to anyone (judge path).
+ */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -20,6 +25,15 @@ export async function POST(
   const job = await ledger.getJob(id);
   if (!job) {
     return NextResponse.json({ error: "job not found" }, { status: 404 });
+  }
+  if (job.paymentMode === "user" && job.payerAddress) {
+    const account = await getSessionAccountFromRequest(request);
+    if (!account || account.address.toLowerCase() !== job.payerAddress.toLowerCase()) {
+      return NextResponse.json(
+        { error: "only the job's owner can revoke its agents" },
+        { status: 403 },
+      );
+    }
   }
   await ledger.revokeAgent(id, parsed.data.agent);
   const totals = await ledger.getTotals(id);

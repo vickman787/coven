@@ -1,3 +1,5 @@
+"use client";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRole, Job, LedgerTotals, Payment, Reservation } from "@coven/shared";
 
@@ -91,44 +93,4 @@ export function useJobState(
   return { error, reload: load, state };
 }
 
-export function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-const MY_JOBS_KEY = "coven:my-jobs";
-
-/**
- * Public v1, no accounts: remember the ids of jobs this browser summoned,
- * so the Jobs page can mark "yours on this device". Anyone with a job
- * link can still view that job — history is public/shareable by link.
- */
-export function rememberMyJob(jobId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    const mine = readMyJobs();
-    if (!mine.includes(jobId)) {
-      window.localStorage.setItem(
-        MY_JOBS_KEY,
-        JSON.stringify([jobId, ...mine].slice(0, 50)),
-      );
-    }
-  } catch {
-    // localStorage unavailable — history still works via the share link.
-  }
-}
-
-export function readMyJobs(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(MY_JOBS_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((v): v is string => typeof v === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-export const EXPLORER_TX = (hash: string) =>
-  `https://base-sepolia.blockscout.com/tx/${hash}`;
+export { dollars, EXPLORER_TX } from "./money";

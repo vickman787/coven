@@ -4,28 +4,40 @@ A Kiro Crew of AI agents that does a job together, where each agent has a scoped
 
 Kiroween 2026, Frankenstein category. Deadline: Friday, December 4, 2026 at 2:00 PM PT.
 
-## Status — Step 4 done, except deploy
+## Status — live on Vercel (product MVP: accounts, dashboard, jobs, wallet)
 
-Step 4 is done: the judge path works end to end in the web app, with no
-login. **92 tests pass, 3 skipped** (ledger 25+1, payments 31+2 live,
-crew 7, web 29).
+Step 4 is done, and Coven is now a full product MVP, not a demo page:
+accounts are wallet-based (sign in by signing a login message with
+your browser extension — no password, no email), with a dashboard,
+jobs, wallet, and settings under `/app`. **131 tests pass, 3 skipped**
+(ledger 44+1, payments 31+2 live, crew 8, web 48).
 
-## Redesign — multi-space app, browser-extension wallet (added 2026-11-20)
+## Product MVP — accounts, dashboard, jobs, wallet (added 2026-11-21)
 
-Coven is no longer one page. The routes are:
+Coven is a real app now. The routes are:
 
 - `/` — landing page only: what Coven is, how it works, the 5 agents,
-  the ledger, honest limits, CTA into the workspace. No summon form.
-- `/workspace` — summon a job (empty input, example as placeholder
-  only), connect a wallet, your jobs at a glance.
-- `/workspace/agents` — Agents at Work space: the most recent running
-  job's agents, live.
-- `/workspace/history` — Work History: real jobs from the ledger, with
-  All / My jobs / Demo filters.
-- `/workspace/jobs/<id>/agents`, `/ledger`, `/result` — one job's own
-  spaces, separate routes, not tabs. Old links redirect: `/jobs` →
-  history, `/jobs/<id>` → the job's Agents space, `?job=<id>` → the
-  same. The judge path is still landing → workspace → summon, no login.
+  the ledger, honest limits, CTAs to launch the app or try the demo.
+  No summon form.
+- `/signin` — sign in with your wallet: connect the extension, sign
+  one login message, done. The wallet address is the account; sessions
+  live in Postgres for 30 days.
+- `/app` — Dashboard: test USDC balance, job counts by status, money
+  settled vs approved, recent jobs, and the summon form. Signed-in only.
+- `/app/jobs` — your jobs, newest first, with status filters. Each job
+  has its own spaces at `/app/jobs/<id>/agents`, `/ledger`, `/result`.
+- `/app/wallet` — your address, test USDC balance, faucet link, and
+  payment history from the ledger (settled with hashes, unresolved
+  clearly marked).
+- `/app/settings` — display name, network info, sign out.
+- `/demo` — demo mode for judges and first-time visitors: no sign-in,
+  no wallet, jobs run on the shared demo wallet and are labelled as
+  demo jobs. The judge path is still ~30 seconds: landing → demo →
+  summon.
+- `/workspace/jobs/<id>/agents|ledger|result` — the public job viewer
+  (shareable links, no sign-in). Old links redirect: `/workspace` →
+  `/app`, `/workspace/history` → `/app/jobs`, `/jobs` → `/app/jobs`,
+  `/jobs/<id>` → the public job viewer, `?job=<id>` → the same.
 
 **Browser-extension wallet:** users connect the wallet extension
 already installed on their PC (MetaMask, Rainbow, Coinbase Wallet)
@@ -38,6 +50,8 @@ to the install pages, and jobs run on the demo wallet only. The
 extension signs one EIP-3009 authorization per handoff; the server
 validates them and settles via the facilitator. Self-transfer model,
 as before: test USDC is not spent, the onchain settlement is real.
+A user-funded job can only be summoned — and its agents only revoked
+— by the signed-in account whose wallet pays for it.
 Mobile wallets without a browser extension cannot connect this way.
 
 **Mock data cleared:** the app shows only real data — jobs from the
@@ -113,8 +127,7 @@ what this version does. See `docs/judge-path.md` for the full flow.
   (An earlier run, `job-demo-3`, settled 1 of 4 — $0.50 — while the other 3
   failed on network timeouts to the facilitator, so ~$5.50 of the $20 test
   USDC is spent. The facilitator is flaky/slow from this VM; retries work.)
-- Not done yet: deploy to Vercel/Railway (needs the public GitHub repo
-  first — see below), demo video.
+- Live: https://coven-mauve.vercel.app — Not done yet: demo video.
 
 ## Judge path — try it in 30 seconds (target)
 

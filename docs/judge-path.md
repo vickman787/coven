@@ -3,7 +3,7 @@
 No login, no signup, no help from the builder.
 
 1. Open the live app — the landing page.
-2. Click **Open the workspace**.
+2. Click **Try the demo**.
 3. Enter a job (the input starts empty; the example text is only a
    placeholder), for example: `research 10 competitors and write a one-page brief`
 4. Set a budget: **$5.00** (allowed $1.00–$10.00, test USDC on Base Sepolia).
@@ -47,18 +47,20 @@ No login, no signup, no help from the builder.
   Seeker's Wikipedia sources are generic. Give the job a topic
   ("research 10 AI note-taking apps") for a sharp brief.
 
-## Public v1 + redesign (added 2026-11-20)
+## Product MVP (added 2026-11-21)
 
-The judge path above is unchanged in speed — landing → workspace →
-summon, no login — but the app is now a multi-space product, not one
-page: `/` is a landing page only; `/workspace` is where you summon
-and see your jobs; `/workspace/agents` is the Agents at Work space;
-`/workspace/history` is Work History; each job has its own spaces at
-`/workspace/jobs/<id>/agents`, `/ledger`, and `/result`. Old links
-still work: `/jobs` redirects to history, `/jobs/<id>` redirects to
-the job's Agents space, and `?job=<id>` forwards there too. Agent
-cards say "complete" (not "paid") when a payment is unresolved;
-"paid" is reserved for settled payments with a hash.
+The judge path above is unchanged in speed — landing → demo →
+summon, no login — but the app is now a full product, not a demo
+page: `/signin` signs in with your wallet (the address is the
+account, sessions in Postgres), `/app` is the Dashboard, `/app/jobs`
+your jobs, `/app/wallet` your wallet and payment history,
+`/app/settings` display name and sign-out. User-funded jobs can only
+be summoned — and their agents only revoked — by the signed-in
+account whose wallet pays for them. Old links still work: `/workspace`
+→ `/app`, `/workspace/history` → `/app/jobs`, `/jobs` → `/app/jobs`,
+`/jobs/<id>` → the public job viewer, and `?job=<id>` forwards there
+too. Agent cards say "complete" (not "paid") when a payment is
+unresolved; "paid" is reserved for settled payments with a hash.
 
 ## Per-user wallets — browser wallet extension (added 2026-11-20)
 
@@ -67,18 +69,21 @@ injected browser extension (MetaMask, Rainbow, Coinbase Wallet) —
 no WalletConnect, no QR code, no project ID. There is no
 browser-generated wallet and no private key anywhere in the app:
 
-1. In the workspace, click **Connect browser wallet** and approve in
-   your extension. Your key never leaves the extension. If no
-   extension is installed, the card says so and links to the install
-   pages instead of faking a connection.
+1. Sign in at `/signin`: click **Connect browser wallet** and approve
+   in your extension, then sign the login message. Your key never
+   leaves the extension, and your wallet address becomes your
+   account. If no extension is installed, the card says so and links
+   to the install pages instead of faking a connection.
 2. Fund the address with free test USDC at https://faucet.circle.com
-   (USDC, Base Sepolia). The card shows the onchain balance.
-3. Summon as usual. The browser checks the balance first, then your
-   extension signs one EIP-3009 authorization per handoff (4, amounts =
-   the budget split) and sends only those signed payloads. The server
-   validates them (signer, amounts, payee, nonce, validity window)
-   and settles them with the facilitator. If the extension is on the
-   wrong network, the card offers to switch it to Base Sepolia.
+   (USDC, Base Sepolia). The dashboard and wallet pages show the
+   onchain balance.
+3. Summon from the dashboard. The browser checks the balance first,
+   then your extension signs one EIP-3009 authorization per handoff
+   (4, amounts = the budget split) and sends only those signed
+   payloads. The server validates them (signer, amounts, payee,
+   nonce, validity window) and settles them with the facilitator. If
+   the extension is on the wrong network, the card offers to switch
+   it to Base Sepolia.
 4. The Ledger shows whose wallet paid: the user's address, or "the
    demo wallet" for judge-path jobs. The two modes are never mixed.
 
@@ -94,7 +99,8 @@ insufficient test USDC); if the balance check cannot reach the
 network, the job may still be created and the facilitator will reject
 the payments, which then stay unresolved in the ledger. Signed
 authorizations live in server memory only, never in Postgres, and are
-deleted after the job runs. No accounts, no mainnet, one job type.
+deleted after the job runs. Accounts exist now (wallet-based, Postgres
+sessions); no mainnet, one job type.
 
 ## Mock data — cleared 2026-11-20
 

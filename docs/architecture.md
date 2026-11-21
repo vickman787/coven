@@ -4,21 +4,32 @@ See `.kiro/specs/coven/design.md` for the full design.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ apps/web (Next.js 16, React 19) — multi-space app          │
+│ apps/web (Next.js 16, React 19) — product MVP              │
 │  /                  landing only                            │
-│  /workspace         summon + wallet + your jobs            │
-│  /workspace/agents  Agents at Work space                    │
-│  /workspace/history Work History (All / Mine / Demo)        │
-│  /workspace/jobs/<id>/agents|ledger|result — one job's     │
-│    spaces (separate routes, not tabs)                       │
+│  /signin            sign in with your wallet (SIWE-style)   │
+│  /app               Dashboard: balance, counts, summon       │
+│  /app/jobs          your jobs, status filters               │
+│  /app/jobs/<id>/agents|ledger|result — one job's spaces     │
+│  /app/wallet        address, balance, payment history       │
+│  /app/settings      display name, network, sign out         │
+│  /demo              judge/demo mode — no sign-in, no wallet  │
+│  /workspace/jobs/<id>/… — public job viewer (share links)   │
+│  POST /api/auth/nonce|verify → login message + session      │
+│  GET  /api/auth/session · POST /api/auth/signout            │
+│  PATCH /api/auth/profile → display name                     │
+│  GET  /api/dashboard → counts, totals, recent jobs          │
+│  GET  /api/wallet → payment history                         │
 │  POST /api/jobs → create job, run in background (after())  │
-│  GET  /api/jobs → list jobs, optional ?payer=0x… filter    │
+│  GET  /api/jobs → list jobs, ?payer=0x… or ?mine=1          │
 │  GET  /api/jobs/[id] → status, totals, payments, brief     │
-│  POST /api/jobs/[id]/revoke → Warden revokes an agent      │
+│  POST /api/jobs/[id]/revoke → Warden revokes an agent       │
+│    (user jobs: owner only)                                  │
 │  Wallet: injected browser extension (wagmi) — MetaMask,     │
 │    Rainbow, Coinbase Wallet. No WalletConnect, no QR code,  │
-│    no project ID. The extension signs EIP-3009 auths. No    │
-│    private key anywhere in the app.                         │
+│    no project ID. The extension signs EIP-3009 auths and    │
+│    the login message. No private key anywhere in the app.   │
+│  Accounts: Postgres accounts + sessions (30 days), nonces   │
+│    (10 min, single-use). Address is the identity.           │
 └──────────────┬───────────────────────────────┬─────────────┘
                │                               │
      ┌─────────▼────────┐             ┌────────▼─────────┐

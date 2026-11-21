@@ -27,12 +27,19 @@ export function deriveQueries(jobDescription: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
+    // Drop purely numeric tokens ("10", "1"): searching Wikipedia for a
+    // bare number returns junk pages (the page for "10", "1", "10-10-321").
+    // Drop short tokens from the single-word fallback below for the same
+    // reason ("ai" alone returns AI-slop pages, not the job's topic).
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
   const unique = [...new Set(cleaned)];
   const queries: string[] = [];
   if (unique.length > 0) queries.push(unique.join(" "));
   if (unique.length >= 3) queries.push(unique.slice(0, 3).join(" "));
-  if (unique.length >= 1) queries.push(unique[0]!);
+  // Single-word fallback: first real word (>= 4 chars), never a number or
+  // a 2-letter token. Only used when it adds a distinct query.
+  const fallback = unique.find((w) => w.length >= 4);
+  if (fallback) queries.push(fallback);
   return [...new Set(queries)].slice(0, 3);
 }
 

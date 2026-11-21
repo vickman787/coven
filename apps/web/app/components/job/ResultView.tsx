@@ -9,7 +9,14 @@ import { renderBrief } from "@/lib/markdown";
  * The Result — its own space, not a tab. The finished one-page
  * brief, its sources, and the final ledger balanced.
  */
-export default function ResultView({ jobId }: { jobId: string }) {
+export default function ResultView({
+  jobId,
+  summonHref = "/demo",
+}: {
+  jobId: string;
+  /** Where "Summon another Coven" goes: the demo for the public viewer, the dashboard in the app. */
+  summonHref?: string;
+}) {
   const { error, state } = useJobState(jobId);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -66,7 +73,7 @@ export default function ResultView({ jobId }: { jobId: string }) {
           Share this job
         </button>
         <Link
-          href="/workspace"
+          href={summonHref}
           className="flex-1 rounded-lg bg-[#f5c518] px-6 py-3 text-center font-bold text-black hover:brightness-110"
         >
           Summon another Coven

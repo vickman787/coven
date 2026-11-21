@@ -7,7 +7,23 @@ describe("deriveQueries", () => {
       "research 10 competitors and write a one-page brief",
     );
     expect(queries.length).toBeGreaterThan(0);
-    expect(queries[0]).toBe("10 competitors");
+    expect(queries[0]).toBe("competitors");
+  });
+
+  it("never derives a bare-number or bare-short-token query", () => {
+    // Regression: "10" and "ai" alone used to be searched on Wikipedia
+    // and returned junk pages (the page for "10", "AI slop").
+    expect(deriveQueries("research 10 competitors and write a one-page brief")).not.toContain("10");
+    const aiQueries = deriveQueries(
+      "research 10 AI note-taking apps and write a one-page brief",
+    );
+    expect(aiQueries).not.toContain("10");
+    expect(aiQueries).not.toContain("ai");
+    expect(aiQueries[0]).toBe("ai note-taking apps");
+    expect(aiQueries).toContain("note-taking");
+    // A job that is only a number yields no queries: the job then fails
+    // honestly with no sources instead of returning junk.
+    expect(deriveQueries("research 10")).toEqual([]);
   });
 });
 
